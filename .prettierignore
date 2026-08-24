@@ -1,0 +1,11 @@
+dist
+node_modules
+coverage
+playwright-report
+test-results
+venv
+.venv
+*.pdf
+
+# Authoritative, user-maintained docs — do not auto-format.
+CLAUDE.md

@@ -1,0 +1,39 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# test artifacts
+coverage/
+playwright-report/
+test-results/
+.vitest/
+
+# python
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# environment / secrets (never commit)
+.env
+.env.*
+*.local
+
+# local model weights (large; not committed to the repo)
+models/onnx/*
+!models/onnx/.gitkeep
+models/configs/*
+!models/configs/.gitkeep
+
+# benchmark run outputs
+benchmark/reports/*
+!benchmark/reports/.gitkeep
+
+# os / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
