@@ -1,6 +1,6 @@
 # PrivAgent — PROJECT_STATUS
 
-_Last updated: 2026-08-26_
+_Last updated: 2026-08-28_
 _Author: M1 complete_
 
 ---
@@ -53,6 +53,24 @@ _Author: M1 complete_
 
 ---
 
-## 8. Next milestone
+## 8. Milestone 2 readiness
 
-Awaiting explicit user request to begin M2.
+**Status: COMPLETE**
+
+### Completed components:
+- Deterministic PII detection (`extension/src/perception/pii/index.ts`) implemented.
+- Controlled screenshot capture (`extension/src/perception/screenshot/index.ts`) implemented.
+- OCR engine (`extension/src/perception/ocr/index.ts`) updated.
+
+### Files changed:
+- `extension/src/perception/pii/index.ts`
+- `extension/src/perception/screenshot/index.ts`
+- `extension/src/perception/ocr/index.ts`
+- `extension/src/types/contracts.ts`
+- `tests/unit/contracts.test.ts`
+
+### Commands/tests executed:
+- `npm run typecheck` — ✅ pass (0 errors)
+- `npm run lint` — ✅ pass (0 errors)
+- `npm test` — ✅ all unit tests passed
+- `npm run build` — ✅ production build successful

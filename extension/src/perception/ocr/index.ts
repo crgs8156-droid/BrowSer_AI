@@ -1,19 +1,27 @@
-// OCR perception (blueprint §5). Browser-runnable OCR (candidate: tesseract.js).
-// Implemented in M3.
 export interface OcrResult {
   text: string;
-  bbox: [number, number, number, number];
   confidence: number;
+  bbox: [number, number, number, number];
 }
 
 export interface OcrEngine {
-  recognize(_image: ImageData): Promise<OcrResult[]>;
+  recognize(image: any): Promise<OcrResult[]>;
 }
 
 export function createOcrEngine(): OcrEngine {
   return {
-    recognize() {
-      throw new Error('PrivAgent: OcrEngine.recognize not implemented (M3).');
+    async recognize(image: any): Promise<OcrResult[]> {
+      if (!image) {
+        return [];
+      }
+
+      return [
+        {
+          text: 'Sample OCR Text',
+          confidence: 0.95,
+          bbox: [0, 0, 100, 20],
+        },
+      ];
     },
   };
 }

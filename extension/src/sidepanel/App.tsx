@@ -6,14 +6,35 @@ export function App() {
 
   const refreshContext = async () => {
     setError(null);
+    // try {
+    //   const response: { error?: string; context?: { tagName: string; textContent: string }[] } =
+    //     await chrome.runtime.sendMessage({ type: 'COLLECT_DOM_CONTEXT' });
+    //   if (response.error) {
+    //     setError(response.error);
+    //   } else {
+    //     setContext(response.context.map((el: { tagName: string; textContent: string }) => `${el.tagName}: ${el.textContent}`));
+    //   }
+    // } catch {
+    //   setError('Failed to collect context.');
+    // }
     try {
-      const response = await chrome.runtime.sendMessage({ type: 'COLLECT_DOM_CONTEXT' });
-      if (response.error) {
+      const response: { error?: string; context?: { tagName?: string; textContent?: string; text?: string }[] } =
+        await chrome.runtime.sendMessage({ type: 'COLLECT_DOM_CONTEXT' });
+
+      if (response?.error) {
         setError(response.error);
+      } else if (Array.isArray(response?.context)) {
+        setContext(
+          response.context.map((el) => {
+            const tag = el.tagName ? `${el.tagName}: ` : '';
+            const text = el.textContent ?? el.text ?? '';
+            return `${tag}${text}`;
+          })
+        );
       } else {
-        setContext(response.context.map((el: any) => `${el.tagName}: ${el.textContent}`));
+        setContext([]);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to collect context.');
     }
   };

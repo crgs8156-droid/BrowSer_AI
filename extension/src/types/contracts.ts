@@ -12,7 +12,8 @@ export interface SensitiveEntity {
   source: PerceptionSource;
   /** Local-only for protected entities; never serialized into a remote payload. */
   text?: string;
-  bbox?: [number, number, number, number];
+  bbox?: [number, number, number, number]; // [x, y, width, height]
+  screenshotId?: string; // ID of the screenshot where the entity was detected
   confidence: number;
   reasons: string[];
   elementId?: string;
