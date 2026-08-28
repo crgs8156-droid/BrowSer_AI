@@ -37,3 +37,4 @@ benchmark/reports/*
 Thumbs.db
 .idea/
 .vscode/
+.aider*

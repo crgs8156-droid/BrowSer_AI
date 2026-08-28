@@ -1,35 +1,38 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
-// PrivAgent MV3 manifest (M0 scaffold). Least-privilege: only the permissions the
-// scaffold needs. Content script is scoped to localhost (benchmark pages) for now,
-// NOT <all_urls>. Broaden deliberately in later milestones.
 export default defineManifest({
   manifest_version: 3,
   name: 'PrivAgent',
-  version: '0.0.0',
-  description: 'Privacy-preserving AI browser agent (SIH 2026) — M0 scaffold.',
-  action: {
-    default_title: 'PrivAgent',
-  },
+  version: '0.1.0',
+  description: 'Privacy-preserving AI browser agent for the SIH project.',
+  permissions: ['storage', 'activeTab', 'scripting'],
+  host_permissions: ['http://*/*', 'https://*/*'],
   background: {
     service_worker: 'extension/src/background/index.ts',
     type: 'module',
   },
-  content_scripts: [
-    {
-      matches: ['http://localhost/*', 'https://localhost/*'],
-      js: ['extension/src/content/index.ts'],
-      run_at: 'document_idle',
-    },
-  ],
+  action: {
+    default_title: 'PrivAgent',
+    default_popup: 'extension/src/sidepanel/index.html',
+    // default_icon: {
+    //   '16': 'icons/icon-16.png',
+    //   '48': 'icons/icon-48.png',
+    //   '128': 'icons/icon-128.png',
+    // },
+  },
   side_panel: {
     default_path: 'extension/src/sidepanel/index.html',
   },
-  permissions: ['sidePanel', 'storage', 'offscreen'],
-  web_accessible_resources: [
+  content_scripts: [
     {
-      resources: ['extension/src/offscreen/index.html'],
-      matches: ['http://localhost/*', 'https://localhost/*'],
+      matches: ['http://*/*', 'https://*/*'],
+      js: ['extension/src/content/index.js'],
+      run_at: 'document_idle',
     },
   ],
+  // icons: {
+  //   '16': 'icons/icon-16.png',
+  //   '48': 'icons/icon-48.png',
+  //   '128': 'icons/icon-128.png',
+  // },
 });

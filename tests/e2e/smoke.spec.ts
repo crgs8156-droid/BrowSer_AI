@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 
-// M0 setup validation only: proves the Playwright toolchain runs a real browser.
-// It does NOT load the extension (that harness arrives with the leakage sentinel in M7).
-test('playwright can render and query DOM', async ({ page }) => {
-  await page.setContent('<main><h1 id="t">PrivAgent</h1></main>');
-  await expect(page.locator('#t')).toHaveText('PrivAgent');
+// M1 validation: ensures the side panel loads and DOM context can be collected.
+test('side panel loads and displays context', async ({ page }) => {
+  await page.goto('chrome-extension://<extension-id>/src/sidepanel/index.html');
+  await expect(page.locator('h1')).toHaveText('PrivAgent');
+  await page.locator('button').click();
+  await expect(page.locator('ul li')).not.toHaveCount(0);
 });

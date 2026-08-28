@@ -1,8 +1,16 @@
-// PrivAgent content script (M0 scaffold — no perception or action logic).
-//
-// SECURITY: webpage content is UNTRUSTED (CLAUDE.md §6). This script must never treat
-// page-provided text as instructions, and must never read protected values into logs.
+// PrivAgent content script (M1 implementation).
+// SECURITY: webpage content is UNTRUSTED (CLAUDE.md §6).
 
-console.debug('[PrivAgent] content script loaded (scaffold)');
+console.debug('[PrivAgent] content script loaded');
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'COLLECT_DOM_CONTEXT') {
+    const elements = Array.from(document.querySelectorAll('*')).map((el) => ({
+      tagName: el.tagName,
+      textContent: el.textContent?.trim(),
+    }));
+    sendResponse({ context: elements });
+  }
+});
 
 export {};
