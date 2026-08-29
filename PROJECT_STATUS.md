@@ -1,7 +1,7 @@
 # PrivAgent — PROJECT_STATUS
 
 _Last updated: 2026-08-29_
-_Author: M3 complete_
+_Author: M4 complete_
 
 ---
 
@@ -222,6 +222,114 @@ no `console.*` statement exists anywhere in `perception/visual/**`.
 
 ---
 
+## 9b. Milestone 4 readiness
+
+**Status: COMPLETE (with E2E unexecuted — unchanged from M3)**
+
+### Scope
+
+A lightweight **local privacy decision / policy layer**: a pure, synchronous
+reducer that consumes the signals M0–M3 already produced and emits one
+deterministic, explainable `PolicyDecision` — `ALLOW` / `WARN` / `SANITIZE` /
+`BLOCK` with severity, decision confidence, reason code, contributing signal
+categories and a non-sensitive explanation. M4 runs **no** detection, OCR, vision,
+AI inference, or network I/O; it only decides. Full design in
+`docs/m4-policy-layer.md`.
+
+### Design decisions
+
+- **New additive module, not a rewrite.** M4 lands as `extension/src/policy/`.
+  The scaffold's `sensitivity/` stub returns `SensitiveEntity[]` (detection
+  output); M4 returns a `PolicyDecision` (a distinct concern), so it does not
+  touch any M0–M3 detector. No existing code was modified except additive types.
+- **Reused vocabulary.** `SANITIZE`/`BLOCK` already exist as `PrivacyEventType`;
+  `ALLOW`/`WARN` are decision states, not new agent actions. Only `RiskSeverity`
+  is a genuinely new type (the project had no severity scale).
+- **Tolerant category mapping.** Handles both the declared `SensitiveCategory`
+  names and the strings the M2 detector actually emits (`PHONE_NUMBER`,
+  `PAYMENT_CARD`, `CREDENTIAL`). Unknown categories map to `medium`/`dom_pii` —
+  never to `none`. `UNCLASSIFIED` (the DOM collector's tag for ordinary text) is
+  benign so pages are not flagged for merely containing text.
+- **Fail closed.** `entities: []` (ran, clean) → `ALLOW`; `entities: undefined`
+  (never ran) → `WARN`/`SIGNAL_UNAVAILABLE`; malformed input → `WARN`/
+  `MALFORMED_SIGNAL`; restricted surface → `WARN`, never `ALLOW`. Missing data is
+  never treated as safe.
+- **Pure consumer.** Being a synchronous reducer with no I/O, it cannot trigger
+  M3 visual work and is safe to call on every page.
+
+### Files added
+
+- `extension/src/policy/index.ts` — the `decidePolicy` engine.
+- `tests/unit/policy.test.ts` — 24 tests covering the 10 required scenarios.
+- `tests/integration/policy-leakage.test.ts` — canary/leakage + source scans.
+- `docs/m4-policy-layer.md` — contract, rules, privacy guarantees, integration.
+
+### Files modified
+
+- `extension/src/types/contracts.ts` — additive M4 types only
+  (`PolicyAction`, `RiskSeverity`, `PolicyReasonCode`, `PolicySignalCategory`,
+  `PolicySignals`, `PolicyDecision`). Nothing existing changed.
+
+### Validation results — actually executed
+
+| Gate       | Command             | Result | Measured |
+| ---------- | ------------------- | ------ | -------- |
+| Typecheck  | `npm run typecheck` | ✅ pass | 0 errors |
+| Lint       | `npm run lint`      | ✅ pass | 0 errors |
+| Unit + integration | `npm test`  | ✅ pass | 10 files, 120 tests (was 8/92; +2 files, +28 tests) |
+| Build      | `npm run build`     | ✅ pass | 36 modules |
+| E2E        | `npm run e2e`       | ❌ **NOT EXECUTED** | 11/11 fail at browser launch (OS restriction; unchanged by M4) |
+
+**Test validity was mutation-tested, not assumed:** injecting the canary value
+into the decision explanation (`detail + JSON.stringify(rawEntities)`) failed
+exactly the two canary assertions in `policy-leakage.test.ts` — "no decision
+serializes the canary" and "explanation is built from categories and counts
+only" — and no others. The mutation was reverted; the suite is green.
+
+### Bundle impact — zero
+
+| Artifact | After M3 | After M4 | Δ |
+| -------- | -------- | -------- | - |
+| Side panel chunk | `index.html-C1HzOecp.js` 201.41 kB | `index.html-C1HzOecp.js` 201.41 kB | **identical hash** |
+| Total `dist` | 214,916 B | 214,916 B | **0 B** |
+
+M4 adds no shipped code: `policy/` is a pure library exercised by tests but not
+yet imported by the worker, content script, or panel. The panel chunk keeps the
+exact same content hash, proving M3's runtime is byte-for-byte unchanged and no
+new visual/OCR work was introduced. M5–M7 will wire the engine in.
+
+### Privacy verification
+
+`tests/integration/policy-leakage.test.ts` embeds a synthetic canary in
+`entity.text` across clean, sensitive (email/phone/payment/credential), malformed
+and restricted inputs, spies all six `console` methods, and stubs `fetch` /
+`navigator.sendBeacon`. It asserts the canary never appears in the decision JSON,
+the explanation, the console, or any egress; that the decision exposes exactly
+`action, confidence, explanation, local, reasonCode, severity, signals` (no
+`text`/`entities`/`screenshot`); and that `extension/src/policy/**` contains no
+`console.*` and no `fetch`/`XMLHttpRequest`/`WebSocket`/`sendBeacon`/`localStorage`/
+`indexedDB`. The engine never reads `SensitiveEntity.text`, so raw values cannot
+reach the decision by construction.
+
+### Known limitations
+
+- **Decision-only.** M4 chooses an action; sanitization (M5), aliasing/vault
+  (M5), blocking (M7) and UI are separate milestones.
+- **Bounded by upstream.** A value M1/M2 does not emit, or a region M3 does not
+  observe, is invisible to the policy layer. No new detection is performed.
+- **No detection-accuracy claim.** `confidence` is confidence in the *decision*,
+  not detection accuracy. No "99%" or classifier benchmark is claimed — M4 is not
+  a detector. Deterministic mapping correctness is unit-tested; classifier
+  accuracy is not measured because it is out of scope.
+- **M2 category-name drift is tolerated, not fixed.** The declared union vs the
+  emitted strings should be reconciled in a dedicated M2 cleanup, out of M4 scope.
+- **Fixed thresholds.** Confidence thresholds are constants, not yet
+  privacy-mode-aware.
+- **Not wired into the runtime**, so no in-browser/manual validation of the layer
+  has been performed; unit + integration cover it deterministically.
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
@@ -244,15 +352,18 @@ it.
 
 ## 11. Next milestone
 
-**M4 — Multimodal fusion + sensitivity detection.** Not started; awaiting explicit request.
+**M5 — Semantic sanitization + local alias vault.** Not started; awaiting explicit
+request.
 
-Entry points M4 should build on:
-- `VisualPerceptionResult` / `VisualObservation` from `extension/src/types/contracts.ts`.
-- `createVisualPerceptionService()` — the only orchestrator; do not call the sub-modules
-  directly.
-- `registerVisualProvider()` / `registerOcrRecognizer()` — the model seams documented in
-  `docs/m3-visual-perception.md`. `models/onnx/` and `models/configs/` are reserved and
-  git-ignored.
+Entry points M5 should build on:
+- `decidePolicy()` from `extension/src/policy/index.ts` — act on
+  `action === 'SANITIZE'`; the decision's `signals` categories indicate what to
+  alias. See `docs/m4-policy-layer.md` §7.
+- The `Sanitizer` and `LocalVault` scaffold stubs
+  (`extension/src/sanitizer/index.ts`, `extension/src/vault/index.ts`).
+- `AliasRecord` in `extension/src/types/contracts.ts` — the alias→value mapping
+  MUST stay local (CLAUDE.md §5 Rule 3); the vault is its only home.
 
-M4 must treat OCR output and visual observations as **raw protected content**: local only,
-never logged, never on a remote payload without sanitization and the privacy firewall.
+M5 must uphold every privacy invariant M4 preserves: raw protected values never
+reach a remote payload, a log, or telemetry; only sanitized context crosses the
+boundary; the firewall (M7) remains the final fail-closed boundary.

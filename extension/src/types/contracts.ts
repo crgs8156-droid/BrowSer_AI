@@ -112,6 +112,77 @@ export interface VisualPerceptionResult {
   metrics: VisualPerceptionMetrics;
 }
 
+// ---------------------------------------------------------------------------
+// M4 — Local privacy decision / policy layer.
+//
+// Consumes signals already produced by M0–M3 — PII/DOM `SensitiveEntity[]`
+// (M1/M2), a `VisualPerceptionResult` (M3), and a restricted-page flag — and
+// emits one deterministic, explainable `PolicyDecision`. It performs NO
+// detection, NO capture, NO OCR, NO model inference and NO network I/O; it only
+// decides. Being a pure consumer, it cannot cause M3 visual work to run.
+//
+// PRIVACY: a `PolicyDecision` carries category tags, counts, a severity and a
+// non-sensitive explanation ONLY. It MUST NEVER contain a raw protected value
+// (`SensitiveEntity.text`), pixels, a screenshot, or a raster. `confidence` is
+// confidence in the DECISION, not a claim about detection accuracy.
+// ---------------------------------------------------------------------------
+
+/** What the extension should do about the current context's sensitivity. */
+export type PolicyAction = 'ALLOW' | 'WARN' | 'SANITIZE' | 'BLOCK';
+
+/** Coarse risk tier. `none` is used only when a signal ran and found nothing. */
+export type RiskSeverity = 'none' | 'low' | 'medium' | 'high' | 'critical';
+
+/** Explainable, non-sensitive reason for a decision. */
+export type PolicyReasonCode =
+  | 'NO_SENSITIVE_DATA'
+  | 'POSSIBLE_SENSITIVE_DATA'
+  | 'CONFIRMED_SENSITIVE_DATA'
+  | 'CRITICAL_CREDENTIAL'
+  | 'VISUAL_UNCERTAINTY'
+  | 'RESTRICTED_CONTEXT'
+  | 'SIGNAL_UNAVAILABLE'
+  | 'MALFORMED_SIGNAL';
+
+/** Which kinds of signal contributed to a decision — never the values. */
+export type PolicySignalCategory =
+  | 'credential'
+  | 'payment'
+  | 'identity'
+  | 'contact'
+  | 'personal'
+  | 'dom_pii'
+  | 'visual_text_like'
+  | 'visual_uncertain'
+  | 'restricted_page';
+
+/**
+ * Signals handed to the policy engine. Every field is optional; absence is
+ * treated as "unknown", never as "safe" (CLAUDE.md §5 Rule 7 — fail closed).
+ */
+export interface PolicySignals {
+  /** PII/DOM entities from M1/M2. `undefined` ⇒ detection did not run. */
+  entities?: SensitiveEntity[];
+  /** M3 result, when visual perception ran. `undefined` ⇒ it did not run. */
+  visual?: VisualPerceptionResult;
+  /** True when the active page is a browser-restricted surface (from M3). */
+  restricted?: boolean;
+}
+
+export interface PolicyDecision {
+  action: PolicyAction;
+  severity: RiskSeverity;
+  /** 0..1 confidence in the DECISION. NOT a detection-accuracy figure. */
+  confidence: number;
+  reasonCode: PolicyReasonCode;
+  /** Distinct contributing signal categories, deduped and sorted. */
+  signals: PolicySignalCategory[];
+  /** Human-readable and non-sensitive: categories and counts only. */
+  explanation: string;
+  /** Always true: computed entirely on-device. */
+  local: true;
+}
+
 export interface AliasRecord {
   /** e.g. USER_EMAIL_1 */
   alias: string;
