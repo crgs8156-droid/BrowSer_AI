@@ -1,16 +1,3 @@
-// Insert at line 1:
-if (typeof (globalThis as any).ImageData === 'undefined') {
-  (globalThis as any).ImageData = class ImageData {
-    width: number;
-    height: number;
-    data: Uint8ClampedArray;
-    constructor(width: number, height: number) {
-      this.width = width;
-      this.height = height;
-      this.data = new Uint8ClampedArray(width * height * 4);
-    }
-  };
-}
 import { describe, expect, it } from 'vitest';
 import { createDomCollector } from '../../extension/src/perception/dom';
 
@@ -38,7 +25,6 @@ describe('DomCollector', () => {
 });
 import { detectPII } from '../../extension/src/perception/pii';
 import { captureScreenshot } from '../../extension/src/perception/screenshot';
-import { createOcrEngine } from '../../extension/src/perception/ocr';
 
 describe('PII Detection', () => {
   it('detects email addresses', () => {
@@ -64,17 +50,6 @@ describe('Screenshot Capture', () => {
   });
 });
 
-describe('OCR Engine', () => {
-  it('recognizes text from an image', async () => {
-    const ocrEngine = createOcrEngine();
-    const mockImage = new ImageData(100, 100);
-    const results = await ocrEngine.recognize(mockImage);
-    expect(results).toEqual([
-      {
-        text: 'Sample OCR Text',
-        bbox: [0, 0, 100, 20],
-        confidence: 0.95,
-      },
-    ]);
-  });
-});
+// OCR coverage moved to tests/unit/ocr.test.ts in M3: the placeholder engine used to
+// return a hard-coded 'Sample OCR Text' for any input, which the new tests assert
+// against. The local ImageData polyfill that supported that test is no longer needed.

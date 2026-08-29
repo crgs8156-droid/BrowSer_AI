@@ -3,7 +3,7 @@ import type { SensitiveEntity } from '../../types/contracts';
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const PHONE_REGEX = /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
 const CREDIT_CARD_REGEX = /\b(?:\d[ -]?){13,19}\b/g;
-const CREDENTIAL_REGEX = /(?:api[_-]?key|secret|token|password|bearer|auth|access[_-]?token)\s*[:=]\s*["']?([A-Za-z0-9\-_\.~+/]{8,})["']?/gi;
+const CREDENTIAL_REGEX = /(?:api[_-]?key|secret|token|password|bearer|auth|access[_-]?token)\s*[:=]\s*["']?([A-Za-z0-9\-_.~+/]{8,})["']?/gi;
 
 function isValidLuhn(digits: string): boolean {
   const sanitized = digits.replace(/\D/g, '');

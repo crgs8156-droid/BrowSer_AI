@@ -1,5 +1,6 @@
 // PrivAgent background service worker (M1 implementation).
 // Handles communication between the side panel and content script.
+import { registerVisualPerceptionMessages } from './visual-messages';
 
 chrome.runtime.onInstalled.addListener(() => {
   // Open the side panel when the toolbar action is clicked.
@@ -33,5 +34,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // Keep the message channel open for async response.
   }
 });
+
+// M3: additional message type on the same runtime channel (see visual-messages.ts).
+registerVisualPerceptionMessages();
 
 export {};

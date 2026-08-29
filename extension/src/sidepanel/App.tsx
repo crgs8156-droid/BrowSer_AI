@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { VisualStatus } from './VisualStatus';
 
 export function App() {
   const [context, setContext] = useState<string[]>([]);
@@ -57,6 +58,7 @@ export function App() {
           </li>
         ))}
       </ul>
+      <VisualStatus />
     </main>
   );
 }
