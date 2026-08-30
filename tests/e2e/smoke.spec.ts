@@ -34,18 +34,25 @@ test('side panel document renders without console errors', async ({ extContext, 
   await page.goto(`chrome-extension://${extensionId}/${PANEL_PATH}`);
 
   await expect(page.locator('h1')).toHaveText('PrivAgent');
-  await expect(page.getByRole('button', { name: 'Refresh Context' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Scan Page' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Visual perception' })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
-// M1 regression: DOM context collection still works end to end.
-test('collects DOM context from a real page', async ({ extContext, panel }) => {
+// The side panel renders a concise, sanitized summary — never a raw page dump.
+test('scans a real page into a concise summary, with no raw dump', async ({
+  extContext,
+  panel,
+}) => {
   await openTestPage(extContext, TEXT_PAGE);
 
-  await panel.getByRole('button', { name: 'Refresh Context' }).dispatchEvent('click');
+  await panel.getByRole('button', { name: 'Scan Page' }).dispatchEvent('click');
 
-  // Scoped to the M1 list (a direct child of <main>) so the M3 observation list
-  // cannot satisfy this assertion.
-  await expect(panel.locator('main > ul > li').first()).toBeVisible();
+  await expect(panel.getByText('Scan: ✓ Complete')).toBeVisible();
+  await expect(panel.getByText('Sensitive items:')).toBeVisible();
+
+  // Regression: the M1 raw DOM dump (a <ul> that was a direct child of <main>) is gone.
+  await expect(panel.locator('main > ul > li')).toHaveCount(0);
+  // And the page's raw heading text never appears in the panel.
+  await expect(panel.getByText('Synthetic test page')).toHaveCount(0);
 });

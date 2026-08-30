@@ -325,10 +325,61 @@ function inspectVisual(raw: unknown): {
     });
   }
 
+  // Genuine OCR/vision content findings (categorized). Unlike the coarse
+  // `text_like_content` uncertainty above, each asserts a category, so it is
+  // classified with the SAME table as DOM/PII entities and drives a real masking
+  // action. Absent/empty when no engine ran (honest `not_available`).
+  const findings = Array.isArray(rec.contentFindings) ? rec.contentFindings : [];
+  for (const raw of findings) {
+    const c = classifyVisualFinding(raw);
+    if (c) contributions.push(c);
+  }
+
   return {
     contributions,
     extraSignals: contributions.length > 0 ? ['visual_text_like'] : [],
     restrictedFromVisual: false,
+  };
+}
+
+/**
+ * Classify one genuine visual content finding (category + geometry). Returns a
+ * Contribution carrying the region's bbox + id, or null when the finding is
+ * malformed or benign. Never reads `text` (raw recognized content stays local).
+ */
+function classifyVisualFinding(raw: unknown): Contribution | null {
+  const rec = asRecord(raw);
+  if (!rec) return null;
+
+  const category = rec.category;
+  if (typeof category !== 'string' || category.length === 0) return null;
+
+  const confidence = typeof rec.confidence === 'number' ? rec.confidence : 0;
+  const cls = CATEGORY_TABLE[category.toUpperCase()] ?? UNKNOWN_CATEGORY;
+  if (cls.severity === 'none') return null;
+
+  const band: ConfidenceBand = confidence >= CONFIRMED_CONFIDENCE ? 'confirmed' : 'possible';
+  const { action, reasonCode } = actionFor(cls.severity, band);
+
+  const ref: PolicyRegionRef = { source: normalizeSource(rec.source) ?? 'VISION' };
+  const bbox = normalizeBbox(rec.bbox);
+  if (bbox) ref.bbox = bbox;
+  // A single region can yield several INDEPENDENT findings (e.g. an email and a
+  // phone painted in one image). Compose the finding id from region + geometry so
+  // distinct sub-boxes are preserved as distinct findings, while true duplicates
+  // (same region + same box) still collapse.
+  if (typeof rec.regionId === 'string' && rec.regionId.length > 0) {
+    ref.findingId = bbox ? `${rec.regionId}#${bbox.join(',')}` : rec.regionId;
+  }
+
+  return {
+    action,
+    reasonCode,
+    severity: cls.severity,
+    signal: cls.signal,
+    band,
+    confidence: clamp01(confidence),
+    ref,
   };
 }
 

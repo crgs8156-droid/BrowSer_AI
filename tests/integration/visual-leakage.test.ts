@@ -222,7 +222,23 @@ describe('raw visual data never reaches the result', () => {
 });
 
 describe('raw visual data never reaches logs', () => {
-  it('logs nothing during a successful run', async () => {
+  // The service emits stage diagnostics (SELECTED_PAGE→…→OCR_REGION_COUNT) through the
+  // single `ocrTrace` chokepoint. The INVARIANT these guard is not "silence" but that
+  // NOTHING logged is raw visual content: no canary pixel token, no capture data URL,
+  // no base64 image bytes — and every emitted line is a known safe `[PrivAgent OCR]`
+  // stage line carrying only counts/dimensions/ids (never a pixel buffer or page text).
+  const SAFE_PREFIX = '[PrivAgent OCR]';
+
+  function assertOnlySafeDiagnostics(output: string): void {
+    expect(output).not.toContain(CANARY_PIXEL_TOKEN);
+    expect(output).not.toMatch(/data:image/);
+    expect(output).not.toMatch(/base64/);
+    for (const line of output.split('\n').filter((l) => l.trim().length > 0)) {
+      expect(line.startsWith(SAFE_PREFIX)).toBe(true);
+    }
+  }
+
+  it('logs no raw visual content during a successful run', async () => {
     const service = createVisualPerceptionService({
       captureViewport: () => Promise.resolve(CAPTURE_DATA_URL),
       rasterize: () => Promise.resolve(textLikeRaster()),
@@ -230,10 +246,10 @@ describe('raw visual data never reaches logs', () => {
     });
     await service.run(SNAPSHOT);
 
-    expect(consoleOutput()).toBe('');
+    assertOnlySafeDiagnostics(consoleOutput());
   });
 
-  it('logs nothing when capture is refused', async () => {
+  it('logs no raw visual content when capture is refused', async () => {
     const service = createVisualPerceptionService({
       captureViewport: () => Promise.reject(new Error(`refused for ${CANARY_PIXEL_TOKEN}`)),
       rasterize: () => Promise.resolve(textLikeRaster()),
@@ -241,12 +257,12 @@ describe('raw visual data never reaches logs', () => {
     });
 
     const result = await service.run(SNAPSHOT);
-    expect(result.reason).toBe('capture_failed');
-    expect(consoleOutput()).not.toContain(CANARY_PIXEL_TOKEN);
-    expect(consoleOutput()).toBe('');
+    expect(result.reason).toBe('VISUAL_CAPTURE_UNAVAILABLE');
+    // The refusal Error embeds the canary; it must NOT be logged (only a reason code is).
+    assertOnlySafeDiagnostics(consoleOutput());
   });
 
-  it('logs nothing when decoding fails', async () => {
+  it('logs no raw visual content when decoding fails', async () => {
     const service = createVisualPerceptionService({
       captureViewport: () => Promise.resolve('data:image/png;base64,!!!not-valid!!!'),
       rasterize: createBrowserRasterizer(),
@@ -254,10 +270,10 @@ describe('raw visual data never reaches logs', () => {
     });
     await service.run(SNAPSHOT);
 
-    expect(consoleOutput()).toBe('');
+    assertOnlySafeDiagnostics(consoleOutput());
   });
 
-  it('contains no logging statements anywhere in the M3 pipeline source', () => {
+  it('routes ALL M3 pipeline logging through the safe ocrTrace chokepoint (no bare console)', () => {
     const files = sourceFiles(VISUAL_SRC);
     // Guard against this test passing vacuously if the path ever moves.
     expect(files.length).toBeGreaterThan(5);

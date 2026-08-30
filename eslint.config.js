@@ -11,6 +11,9 @@ export default tseslint.config(
       'coverage/**',
       'playwright-report/**',
       'test-results/**',
+      // Vendored, minified OCR runtime assets (Tesseract worker + wasm glue),
+      // bundled verbatim into the extension — not our source to lint.
+      'extension/public/**',
     ],
   },
   js.configs.recommended,

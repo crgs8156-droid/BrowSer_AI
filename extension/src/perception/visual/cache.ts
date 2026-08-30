@@ -3,7 +3,7 @@
 // PRIVACY: this cache stores a non-reversible digest plus derived labels. It never
 // stores pixels, captures, or text. A digest cannot be turned back into an image.
 
-import type { VisualObservation } from '../../types/contracts';
+import type { VisualContentFinding, VisualObservation } from '../../types/contracts';
 import type { RasterRegion } from './types';
 
 /** Bounded so a long-lived side panel cannot grow memory without limit. */
@@ -41,6 +41,15 @@ export function computeRasterDigest(raster: RasterRegion): string {
 interface CacheEntry {
   digest: string;
   observations: VisualObservation[];
+  /** Genuine OCR/vision findings for this region, cached alongside observations so a
+   *  repeat scan of an unchanged region re-emits them without re-running the engine. */
+  contentFindings: VisualContentFinding[];
+}
+
+/** What a cache hit yields: the derived observations AND content findings together. */
+export interface CachedRegion {
+  observations: VisualObservation[];
+  contentFindings: VisualContentFinding[];
 }
 
 /**
@@ -52,19 +61,24 @@ export class VisualRegionCache {
 
   constructor(private readonly maxEntries: number = MAX_CACHE_ENTRIES) {}
 
-  get(regionId: string, digest: string): VisualObservation[] | null {
+  get(regionId: string, digest: string): CachedRegion | null {
     const entry = this.entries.get(regionId);
     if (entry === undefined || entry.digest !== digest) return null;
 
     // Refresh recency.
     this.entries.delete(regionId);
     this.entries.set(regionId, entry);
-    return entry.observations;
+    return { observations: entry.observations, contentFindings: entry.contentFindings };
   }
 
-  set(regionId: string, digest: string, observations: VisualObservation[]): void {
+  set(
+    regionId: string,
+    digest: string,
+    observations: VisualObservation[],
+    contentFindings: VisualContentFinding[] = [],
+  ): void {
     if (this.entries.has(regionId)) this.entries.delete(regionId);
-    this.entries.set(regionId, { digest, observations });
+    this.entries.set(regionId, { digest, observations, contentFindings });
 
     while (this.entries.size > this.maxEntries) {
       const oldest = this.entries.keys().next();

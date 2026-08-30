@@ -29,11 +29,14 @@ export function collectVisualCandidatesInPage(): DomVisualSnapshot {
     // Too small to hold readable content.
     if (rect.width < MIN_EDGE || rect.height < MIN_EDGE) continue;
 
-    // Entirely outside the visible viewport — a capture would not include it.
+    // Cull only what a capture can NEVER reach: content above the current viewport,
+    // or off to either side. Content BELOW the fold is intentionally KEPT — the service
+    // may cover it with bounded below-the-fold band captures (it maps these rects to
+    // document coordinates using `scrollY`). Nodes already scrolled past (bottom <= 0)
+    // cannot be recaptured without scrolling up, so they are dropped.
     if (
       rect.bottom <= 0 ||
       rect.right <= 0 ||
-      rect.top >= viewport.height ||
       rect.left >= viewport.width
     ) {
       continue;
@@ -66,10 +69,18 @@ export function collectVisualCandidatesInPage(): DomVisualSnapshot {
 
   const bodyText = document.body === null ? '' : (document.body.innerText ?? '');
 
+  const docEl = document.documentElement;
+  const documentHeight =
+    docEl === null ? viewport.height : Math.max(docEl.scrollHeight, viewport.height);
+
   return {
     url: window.location.href,
     viewport,
     domTextLength: bodyText.trim().length,
     candidates,
+    // Document-absolute mapping inputs for bounded below-the-fold band capture. The
+    // candidate rects above stay viewport-relative; the service adds `scrollY` to them.
+    scrollY: Math.max(0, Math.floor(window.scrollY)),
+    documentHeight,
   };
 }

@@ -9,6 +9,10 @@ import manifest from './extension/manifest.ts';
 // omitted for the scaffold to avoid the Vite 8 rolldown/oxc-babel/react-compiler peer chain.
 export default defineConfig({
   plugins: [tailwindcss(), crx({ manifest })],
+  // Bundled OCR runtime assets (Tesseract worker, wasm core, eng language data) live
+  // under extension/public and are copied verbatim into dist/ so they load offline
+  // from the extension origin via chrome.runtime.getURL('ocr/...').
+  publicDir: 'extension/public',
   build: {
     outDir: 'dist',
     emptyOutDir: true,

@@ -150,7 +150,7 @@ describe('region cache', () => {
     const digest = computeRasterDigest(textLikeRaster());
     cache.set(region.id, digest, observations);
 
-    expect(cache.get(region.id, digest)).toEqual(observations);
+    expect(cache.get(region.id, digest)?.observations).toEqual(observations);
     expect(cache.get(region.id, computeRasterDigest(flatRaster()))).toBeNull();
     expect(cache.get('other-region', digest)).toBeNull();
   });
@@ -184,7 +184,7 @@ describe('region cache', () => {
     for (let i = 0; i < 50; i++) cache.set(`region-${i}`, `digest-${i}`, observations);
     expect(cache.size).toBe(4);
     expect(cache.get('region-0', 'digest-0')).toBeNull();
-    expect(cache.get('region-49', 'digest-49')).toEqual(observations);
+    expect(cache.get('region-49', 'digest-49')?.observations).toEqual(observations);
   });
 
   it('clears fully on dispose', () => {

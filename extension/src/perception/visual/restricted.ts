@@ -13,9 +13,11 @@
 export const BROWSER_RESTRICTION_REASON = 'browser_security_restriction';
 
 /**
- * The extension declares `host_permissions` for http/https only, so every other
- * scheme (chrome:, about:, devtools:, file:, moz-extension:, view-source:, …) is
- * out of reach by construction.
+ * M3 only perceives real web pages: http/https. Even though the extension now declares
+ * the `<all_urls>` host permission (required by `captureVisibleTab`), every other scheme
+ * (chrome:, about:, devtools:, file:, moz-extension:, view-source:, …) is treated as
+ * restricted here by design — those surfaces are browser-protected and/or out of scope,
+ * so we never attempt capture on them regardless of the granted host pattern.
  */
 const OPERABLE_SCHEMES: ReadonlySet<string> = new Set(['http:', 'https:']);
 

@@ -9,6 +9,7 @@ import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionResult, VisualPerceptionStatus } from '../types/contracts';
 import { COLLECT_VISUAL_CANDIDATES, type VisualCandidatesResponse } from '../types/messages';
+import { captureViaBackground } from './capture';
 
 const STATUS_LABELS: Record<VisualPerceptionStatus, string> = {
   not_required: 'Not required — DOM was sufficient',
@@ -18,10 +19,28 @@ const STATUS_LABELS: Record<VisualPerceptionStatus, string> = {
   restricted_page: 'Restricted page — browser security',
 };
 
+/** Human-readable explanations for the diagnostic reason codes the service emits, so
+ *  the panel never shows a raw code like `VISUAL_CAPTURE_UNAVAILABLE` to the user. */
+const REASON_LABELS: Record<string, string> = {
+  VISUAL_CAPTURE_UNAVAILABLE:
+    'The browser would not let this page be captured (e.g. a PDF, the New Tab page, or protected content). Text scanning still ran on the page.',
+  rasterization_unsupported_in_context: 'This context cannot turn a capture into pixels.',
+  browser_security_restriction: 'This is a browser-protected surface and cannot be inspected.',
+  invalid_snapshot: 'The page structure could not be read.',
+  run_in_progress: 'A visual check is already running.',
+};
+
+/** Honest one-line status for the OCR/vision content pass. */
+const CONTENT_STATUS_LABELS: Record<string, string> = {
+  ok: 'OCR/vision engine ran',
+  not_available: 'No OCR/vision engine registered — image contents not read',
+  failed: 'OCR/vision engine errored (fail closed — nothing fabricated)',
+};
+
 // Created on first use so simply opening the panel loads no provider.
 let service: VisualPerceptionService | null = null;
 function getService(): VisualPerceptionService {
-  service ??= createVisualPerceptionService();
+  service ??= createVisualPerceptionService({ captureViewport: captureViaBackground });
   return service;
 }
 
@@ -92,12 +111,27 @@ export function VisualStatus() {
             {running ? STATUS_LABELS.running : STATUS_LABELS[result.status]}
           </p>
           {result.reason !== undefined && (
-            <p className="mt-1 text-neutral-500">Reason: {result.reason}</p>
+            <p className="mt-1 text-neutral-500">
+              Reason: {result.reason}
+              {REASON_LABELS[result.reason] !== undefined && ` — ${REASON_LABELS[result.reason]}`}
+            </p>
+          )}
+          {result.reasonDetail !== undefined && result.reasonDetail.length > 0 && (
+            // The browser's own capture-failure string (an API diagnostic, never pixels or
+            // page text). Shown so the actual cause of an "unavailable" is visible, not hidden.
+            <p className="mt-1 text-neutral-400" data-testid="reason-detail">
+              Detail: {result.reasonDetail}
+            </p>
           )}
           <p className="mt-1 text-neutral-500">
             {result.metrics.regionsProcessed} analysed · {result.metrics.regionsFromCache} cached ·{' '}
             {result.metrics.durationMs} ms
           </p>
+          {result.contentStatus !== undefined && (
+            <p className="mt-1 text-neutral-500">
+              OCR: {CONTENT_STATUS_LABELS[result.contentStatus] ?? result.contentStatus}
+            </p>
+          )}
           <ul className="mt-2">
             {result.observations.map((observation) => (
               <li key={observation.region.id} className="text-neutral-700">

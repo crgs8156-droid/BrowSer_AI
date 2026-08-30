@@ -243,8 +243,25 @@ describe('pipeline fails soft', () => {
 
     const result = await service().run(snapshot());
     expect(result.status).toBe('unavailable');
-    expect(result.reason).toBe('capture_failed');
+    expect(result.reason).toBe('VISUAL_CAPTURE_UNAVAILABLE');
     expect(result.observations).toEqual([]);
+  });
+
+  it('surfaces the sanitized capture-failure diagnostic in reasonDetail', async () => {
+    capture.mockRejectedValueOnce(new Error('Cannot access contents of the page'));
+
+    const result = await service().run(snapshot());
+    // The real API cause is visible (so a persistent "unavailable" is debuggable)…
+    expect(result.reasonDetail).toBe('Cannot access contents of the page');
+  });
+
+  it('never lets pixel bytes ride out through reasonDetail', async () => {
+    // A hostile/odd error carrying a data URL must be reduced to a safe token, not echoed.
+    capture.mockRejectedValueOnce(new Error('data:image/png;base64,SECRETPIXELS'));
+
+    const result = await service().run(snapshot());
+    expect(result.reasonDetail).toBe('capture_error');
+    expect(JSON.stringify(result)).not.toContain('SECRETPIXELS');
   });
 
   it('skips regions that cannot be decoded', async () => {

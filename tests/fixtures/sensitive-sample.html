@@ -1,0 +1,64 @@
+<!doctype html>
+<!--
+  PrivAgent manual + E2E test page. SYNTHETIC DATA ONLY (CLAUDE.md §15) — every value
+  here is fabricated for testing and matches no real person. It exercises the whole
+  pipeline: text PII, form-field values, a credential, a valid-Luhn payment card, a
+  BELOW-THE-FOLD second email (proves whole-page text coverage), an alt-described image
+  and an undescribed painted canvas, spread across several page sections.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>PrivAgent synthetic sensitive sample</title>
+    <style>
+      body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; }
+      section { min-height: 700px; border-bottom: 1px solid #ddd; padding: 16px 0; }
+      canvas { border: 1px solid #999; }
+    </style>
+  </head>
+  <body>
+    <h1>Acme Synthetic Account (test data only)</h1>
+
+    <section id="s1">
+      <h2>Section 1 — contact</h2>
+      <p>Primary contact email: sample_user_7781@example.test</p>
+      <form>
+        <label>Email <input type="email" name="email" value="form_user_7782@example.test" /></label>
+        <label>Phone <input type="tel" name="phone" value="+1-202-555-0148" /></label>
+      </form>
+      <img
+        id="badge"
+        src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEAAAABACAYAAACqaXHeAAAAHElEQVR42u3BAQ0AAADCoPdPbQ43oAAAAAAAAADvBhAAAAGmZ1kUAAAAAElFTkSuQmCC"
+        width="96"
+        height="96"
+        alt="Account verification badge"
+      />
+    </section>
+
+    <section id="s2">
+      <h2>Section 2 — billing</h2>
+      <p>Card on file: 4111111111111111</p>
+      <p>api_key: sk_test_synthetic_abcdef0123456789</p>
+      <canvas id="painted" width="320" height="220"></canvas>
+    </section>
+
+    <section id="s3">
+      <h2>Section 3 — below the fold</h2>
+      <p>Secondary contact email (below the fold): below_fold_user_7783@example.test</p>
+    </section>
+
+    <script>
+      // Paint an undescribed canvas with synthetic glyph-like marks (no real text).
+      const c = document.getElementById('painted');
+      if (c && c.getContext) {
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, 320, 220);
+        ctx.fillStyle = '#111';
+        for (let y = 12; y < 208; y += 14) {
+          for (let x = 12; x < 308; x += 6) ctx.fillRect(x, y, 3, 8);
+        }
+      }
+    </script>
+  </body>
+</html>

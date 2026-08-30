@@ -1,7 +1,119 @@
 # PrivAgent — PROJECT_STATUS
 
-_Last updated: 2026-08-29_
-_Author: M4 complete_
+_Last updated: 2026-08-30_
+_Author: Real local OCR (Tesseract.js) integrated — visual content pass live_
+
+---
+
+## 0. Real local OCR integration (post-M5 hardening)
+
+**Status: COMPLETE (code + all offline gates green); live wasm recognition
+pending manual Chrome verification.**
+
+### What was implemented
+- **Real local OCR engine** — `extension/src/perception/ocr/tesseract.ts` wraps
+  Tesseract.js v6 with a lazy `createWorker('eng', 1, …)`. All runtime assets are
+  loaded from **extension-local URLs** via `chrome.runtime.getURL('ocr/…')`
+  (`workerPath`, `corePath`, `langPath`, `gzip:true`, `cacheMethod:'none'`).
+  No screenshot or pixel ever leaves the machine — there is no remote OCR call.
+- **OCR → PII bridge** — `extension/src/perception/visual/ocr-analyzer.ts`
+  recognizes word boxes, reassembles line text with per-word offset spans, runs
+  the SAME `detectPII` used for DOM text, and unions the covering word boxes into
+  one bbox per finding (confidence = averaged OCR confidence of the covered words).
+- **Provenance (requirement D)** — a `source` field flows analyzer →
+  `VisualContentFinding` → policy → mask directive → summary, so OCR-recognized
+  regions surface as `OCR_REGION_n` and non-text painted regions stay
+  `IMAGE_REGION_n`. Nothing is labelled OCR unless OCR actually read text.
+- **Production wiring** — `extension/src/perception/register-ocr.ts`
+  (`installOcrEngine()`) is called once in `sidepanel/main.tsx`. Tests never import
+  it; they inject a FAKE engine (requirement I).
+- **MV3 CSP** — `manifest.ts` sets
+  `extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"` so
+  the Tesseract wasm loads under MV3.
+- **Bundling** — `vite.config.ts` `publicDir: 'extension/public'` ships the OCR
+  runtime into `dist/`.
+
+### Honest engine behaviour (CLAUDE.md §22)
+- Load failure throws a tagged `OCR_ENGINE_UNAVAILABLE`; the analyzer reports
+  `not_available` (no engine) or `failed` (engine threw) — it never fabricates text.
+- The wasm engine cannot run under vitest/node, so unit tests verify only the
+  deterministic fail-honest path; real recognition is a **manual Chrome** step.
+
+### Multi-region (requirement E) — preserved, not rewritten
+The existing M3 pipeline keeps every selected region up to `MAX_REGIONS`; each
+region yields its own observation → policy decision → mask directive. Overlap
+merging (`mergeMaskRegions`) merges only genuinely overlapping directives;
+independent regions stay distinct. Verified by the integration suite (independent
+findings preserved; disjoint boxes not merged).
+
+### dist/ inspection (requirement J)
+`npm run build` → `dist/ocr/` contains:
+- `worker.min.js` (111 KB)
+- `core/tesseract-core-lstm.wasm` (2.87 MB) + `.wasm.js` (3.95 MB)
+- `core/tesseract-core-simd-lstm.wasm` (2.87 MB) + `.wasm.js` (3.95 MB)
+- `lang/eng.traineddata.gz` (1.98 MB)
+
+**Total `dist/` = 16 MB — PASS (<100 MB).** No new heavyweight model, no persisted
+bitmap; browser-native `captureVisibleTab` + geometry + lazy/temporary processing.
+
+### Gates (all run this session)
+| Gate | Result |
+|------|--------|
+| `npm run typecheck` | PASS (clean) |
+| `npm run lint` | PASS (0 errors; `extension/public/**` vendored assets ignored) |
+| `npm run test` | PASS — 260/260 (25 files) |
+| `npm run build` | PASS |
+| `npm run e2e` | PASS — 12/12 (smoke, scan-findings, visual-perception) |
+
+### Cannot be verified in this sandbox (stated honestly, requirement K)
+- Live Tesseract wasm recognition of real pixels (needs a real Chrome + OffscreenCanvas).
+- Real `chrome.tabs.captureVisibleTab` capture of an actual tab.
+Both are exercised only via injected fakes offline; the production path is wired
+and asset-complete but must be confirmed by loading `dist/` in Chrome.
+
+### Capture-broker fix (VISUAL_CAPTURE_UNAVAILABLE in the real browser)
+**Symptom:** the panel reported `Reason: VISUAL_CAPTURE_UNAVAILABLE … 0 analysed`
+on ordinary pages. **Root cause:** capture ran IN the side-panel document via
+`chrome.tabs.captureVisibleTab(WINDOW_ID_CURRENT=-2, …)`; from a panel document `-2`
+does not resolve to the window holding the web page, so Chrome refused the capture.
+**Fix (no new API, no engine change, capture stays local):**
+- New `CAPTURE_VIEWPORT` message brokered by the background worker
+  (`extension/src/background/index.ts` `captureActiveViewport`): it resolves the
+  active tab's OWN `windowId` (same query SCAN_PAGE uses) and calls
+  `captureVisibleTab(windowId, …)`, returning ONLY the PNG data URL (or `restricted`/
+  a short error code). The data URL is handed back to the panel for local rasterization
+  and never leaves the device.
+- Panel bridge `extension/src/sidepanel/capture.ts` (`captureViaBackground`) is injected
+  as the service's `captureViewport` dep in both `App.tsx` and `VisualStatus.tsx`.
+- The service's `CAPTURE_FAILED` trace now records a short, sanitized Chrome diagnostic
+  (`safeCaptureError`, strips `data:`/`base64`, caps 120 chars) so the real cause of a
+  refusal is visible while the result reason stays the single code `VISUAL_CAPTURE_UNAVAILABLE`.
+- Tests: `tests/integration/scan-message-path.test.ts` gains 5 CAPTURE_VIEWPORT cases
+  (uses tab's own windowId not -2; restricted fail-closed; NO_ACTIVE_TAB; forwards
+  Chrome error string; EMPTY_CAPTURE). Re-ran all gates: typecheck/lint clean,
+  **269/269** unit+integration, build OK, **12/12** e2e.
+
+### Capture ROOT CAUSE: host permission (`<all_urls>`)
+Surfacing the sanitized Chrome diagnostic (`reasonDetail`, rendered as `Detail:` in
+`VisualStatus.tsx`) revealed the actual cause:
+> `Either the '<all_urls>' or 'activeTab' permission is required.`
+
+`chrome.tabs.captureVisibleTab` accepts **only** the literal `<all_urls>` host
+permission, or `activeTab` **plus a qualifying user gesture** (an action/menu/command
+click). The broad patterns we declared (`http://*/*`, `https://*/*`) are **not** accepted
+for this API, and our capture is triggered from a side-panel button — which does not
+grant `activeTab`. So capture was refused on every ordinary page, independent of the
+windowId fix (which was still necessary and is retained).
+
+**Fix:** `extension/manifest.ts` `host_permissions: ['<all_urls>']` (documented minimum;
+verified against Chrome docs, not invented). Scope is unchanged in practice: M3 still
+only perceives http/https — `perception/visual/restricted.ts` continues to treat every
+other scheme as restricted by design, so `<all_urls>` does not widen what is inspected.
+Captured pixels are still rasterized locally and never leave the device.
+
+Gates after the permission fix: typecheck PASS, lint PASS, **271/271** unit+integration,
+build PASS (`dist/manifest.json` contains `"host_permissions": ["<all_urls>"]`),
+**12/12** e2e. Live capture success still requires a manual Chrome reload to confirm.
 
 ---
 
@@ -361,6 +473,331 @@ construction.
 
 ---
 
+## 9c. Milestone 5 readiness
+
+**Status: COMPLETE (all gates executed, including E2E)**
+
+### Scope
+
+A lightweight, **local sanitization + privacy-enforcement layer** that consumes
+the M4 `PolicyReport` (per-finding decisions) plus the raw `SensitiveEntity[]`
+that produced them, and neutralises **every** applicable finding before any
+content can be placed on a `RemoteAgentRequest`. Text findings are aliased out of
+the visible text; visual findings become mask directives; nothing sensitive is
+ever silently dropped. Full design in `docs/m5-sanitization.md`.
+
+### Design decisions
+
+- **Implemented the existing stubs, added one orchestrator.** `Sanitizer`
+  (`extension/src/sanitizer/index.ts`) and `LocalVault`
+  (`extension/src/vault/index.ts`) were throwing scaffold stubs; M5 implements
+  them as declared. The genuinely new surface is `enforcePrivacy`
+  (`extension/src/sanitizer/enforce.ts`) — the policy-driven orchestrator that M4
+  §7 always described as M5's job — plus additive result types. No M1–M4 code was
+  modified except additive types in `contracts.ts`.
+- **Findings carry no raw value (by M4 design), so M5 correlates.** A
+  `FindingDecision.ref.findingId` equals the upstream `SensitiveEntity.id`; M5
+  indexes the entities by id to recover `.text` for redaction. It never reads a
+  value out of the finding itself.
+- **Aliases only cross the boundary; values stay in the vault.** The alias
+  directory is `{ alias, category }[]` (type only). The alias↔value mapping lives
+  solely in the in-memory `LocalVault`, session-scoped and wiped by `clearSession`
+  (CLAUDE.md §5 Rule 3/4).
+- **Visual enforcement is region masking, not outbound image scrubbing.**
+  `RemoteAgentRequest` has no image field, so raw pixels never cross the boundary
+  by construction (M3 invariant). M5 emits geometry-only mask directives and
+  provides a pure local pixel-mask primitive (`applyMasks`) — a local
+  defence-in-depth measure, honestly scoped, not an over-claim.
+- **Overlap is a deterministic union.** `mergeMaskRegions` merges intersecting
+  boxes into their bounding union to a fixpoint, preserving every finding id, so
+  the protected area is never smaller than the sum of the sensitive regions.
+  Disjoint regions stay separate (the whole page is never masked because two
+  far-apart regions are sensitive).
+- **Fail closed on the text boundary.** Each finding gets exactly one
+  disposition — `aliased` / `masked` / `flagged` (malformed) / `inaccessible`
+  (no value and no region). `enforced` is true only when every finding is
+  neutralised and the page is not uncertain. Cleartext `sanitizedText` is emitted
+  **only** when the page is fully safe (`enforced && !blocked && !restricted`);
+  otherwise it is withheld (empty), so an unidentified raw value can never ride
+  out on the sanitized text (CLAUDE.md §5 Rule 7).
+
+### Files added
+
+- `extension/src/sanitizer/alias.ts` — category normalisation, stable/unique
+  alias allocation, literal (regex-free) redaction.
+- `extension/src/sanitizer/mask.ts` — `mergeMaskRegions` (overlap → union) and
+  `applyMasks` (pure local pixel masking).
+- `extension/src/sanitizer/enforce.ts` — the `enforcePrivacy` orchestrator.
+- `tests/unit/vault.test.ts` — 5 tests (store/resolve/clear/fail-closed).
+- `tests/unit/sanitizer.test.ts` — primitive tests (alias, redact, category,
+  text `Sanitizer`, region merge, pixel mask).
+- `tests/unit/enforce.test.ts` — the 16 required M5 scenarios, each labelled.
+- `tests/integration/sanitizer-leakage.test.ts` — canary/leakage across every
+  branch + source scan (comments stripped) proving no console/network/storage.
+- `docs/m5-sanitization.md` — architecture and privacy guarantees.
+
+### Files modified
+
+- `extension/src/sanitizer/index.ts` — implemented `Sanitizer`; barrel-exports
+  the M5 primitives and `enforcePrivacy`.
+- `extension/src/vault/index.ts` — implemented the in-memory `LocalVault`.
+- `extension/src/types/contracts.ts` — additive M5 types (`AliasBinding`,
+  `FindingDisposition`, `VisualMaskDirective`, `FindingEnforcement`,
+  `EnforcementResult`).
+
+### Validation results
+
+| Gate      | Command             | Result |
+| --------- | ------------------- | ------ |
+| Typecheck | `npm run typecheck` | ✅ pass |
+| Lint      | `npm run lint`      | ✅ pass |
+| Unit + integration | `npm test` | ✅ **182 passed / 182** (14 files; +45 over M4's 137) |
+| Build     | `npm run build`     | ✅ pass (36 modules) |
+| E2E tests | `npm run e2e`       | ✅ **11 passed / 11** |
+
+One genuine defect was found and fixed by testing, not by weakening the test: a
+malformed-only signal left the raw value in `sanitizedText` because M5 could not
+identify it. Fixed by withholding cleartext unless the page is fully safe.
+
+### Known limitations
+
+- **Not wired into the runtime.** M5 is a tested library; the content-script /
+  agent-request path that calls `enforcePrivacy` and feeds `visualMasks` into a
+  local capture is a later milestone. Bundle sizes are unchanged from M4 because
+  the side-panel entry does not import M5 yet.
+- **Vault is volatile.** In-memory only; not persisted (persisting a raw value at
+  rest would need encryption — threat-model R15). Mappings vanish with the context.
+- **Masking is local-only.** It protects a local pixel buffer; because no image
+  crosses the boundary, this is defence-in-depth, not the outbound guarantee. The
+  outbound guarantee is that raw text/pixels/mappings never appear on the request.
+- **Bounded by upstream.** A value M1/M2 does not emit or a region M3 does not
+  observe is invisible to M5; no new detection is performed. No detection-accuracy
+  claim is made.
+- **Restricted/inaccessible content is not claimed as sanitized.** It is reported
+  (`restricted` / disposition `inaccessible`) and fails certification — never
+  falsely reported as protected.
+
+---
+
+## 9d. Side-panel scan wiring + M3 below-the-fold improvements
+
+**Status: COMPLETE (typecheck, lint, 219 unit/integration tests, build, 12 E2E all pass)**
+
+### SCAN_PAGE communication fix (root cause + fix)
+
+**Symptom:** manual scans returned `PAGE_UNREACHABLE` ("Could not read this page…") and
+reloading the page did not help.
+
+**Root cause:** the `SCAN_PAGE` relay reached the page with `chrome.tabs.sendMessage`, which
+requires a *declared* content-script receiver. Declared content scripts only auto-inject into
+pages loaded **after** the extension; a tab already open (or one whose async content-script
+loader had not yet registered its `onMessage` listener) has no receiver, so `sendMessage`
+fails with `lastError` → `PAGE_UNREACHABLE`. (The M3 `COLLECT_VISUAL_CANDIDATES` path never had
+this problem because it injects on demand via `chrome.scripting.executeScript`.)
+
+**Fix (`extension/src/background/index.ts`):** the relay now mirrors that proven pattern. On a
+missing receiver it injects the built content-script file(s) — read at runtime from
+`chrome.runtime.getManifest().content_scripts[0].js`, using the existing `scripting` +
+http/https `host_permissions` (no new grant) — and retries. `PAGE_UNREACHABLE` is surfaced
+**only** when injection itself is refused, i.e. the browser genuinely forbids access (fail
+closed, CLAUDE.md §5 Rule 7). The `SCROLL_VIEWPORT` relay uses the same path. Also removed the
+stray `action.default_popup` from the manifest so the toolbar icon opens the **side panel**
+(it previously suppressed `openPanelOnActionClick`).
+
+**Deterministic test:** `tests/integration/scan-message-path.test.ts` installs a fake `chrome`
+and drives the worker's listeners: receiver-present relay; **missing receiver → inject →
+retry succeeds** (the fix); injection refused → `PAGE_UNREACHABLE`; restricted URL →
+`{restricted:true}` with no injection; no active tab → `NO_ACTIVE_TAB`; unknown type ignored;
+plus the two `SCROLL_VIEWPORT` cases.
+
+### Manual verification (supported setup)
+
+The extension declares **http/https** host permissions only; `isRestrictedUrl` treats
+`file:`, `chrome:`, etc. as restricted (fail closed). Opening the fixture as **`file://` is
+therefore intentionally NOT supported** — it reports "Restricted page", never a scan. Serve it
+over http instead:
+
+```bash
+npx serve tests/fixtures    # or: python -m http.server 8000 --directory tests/fixtures
+```
+
+Then: load `dist/` at `chrome://extensions` (Developer mode → Load unpacked; **Reload** after a
+rebuild) → open `http://localhost:3000/sensitive-sample.html` (or the printed URL) → click the
+PrivAgent toolbar icon to open the side panel → **Scan Page**. Expect a concise summary
+(counts, `USER_*` aliases, `IMAGE_REGION_N`, "outbound blocked") with no raw values/heading.
+Note: this Chrome click-through cannot be exercised in the CI sandbox; the E2E suite drives the
+identical production path over `https://privagent.test`, and the message-path unit test covers
+the injection fallback deterministically.
+
+### Scope
+
+Two connected pieces of work, both **wiring/UI + hardening only** — no change to the
+M2/M4/M5 detection, policy, or sanitization logic:
+
+1. **The side panel now consumes a structured, sanitized result — never a raw page dump.**
+   Previously the panel collected every DOM element's `textContent` and rendered it. It now
+   sends `SCAN_PAGE`, and the whole M2→M5 pipeline runs **on-device in the panel document**:
+   `detectPII` (M2) → `visualService.run` (M3) → `enforcePrivacy` (M4+M5). The panel renders
+   only the derived `ScanSummary` (counts, semantic aliases, masked-region metadata). This
+   also closes M5 §11 integration point (1): the running extension now calls
+   `enforcePrivacy()` and honours its `blocked` fail-closed gate in the UI.
+
+2. **M3 multi-region + bounded below-the-fold image coverage.**
+
+### Design decisions
+
+- **All detected regions are preserved.** Each region → one observation → one M4
+  `FindingDecision` (dedupe key includes bbox) → one M5 mask directive; only genuinely
+  overlapping directives merge (`mergeMaskRegions`). Independent regions surface as distinct
+  `IMAGE_REGION_1..N`, bounded by `MAX_REGIONS = 4` (the cap is surfaced honestly, not hidden).
+- **Below-the-fold TEXT is fully covered** because `pageText` is whole-document `innerText`
+  plus form-field values; M2 sees it all (proven by `USER_EMAIL_2` below the fold in E2E).
+- **Below-the-fold IMAGES: bounded band capture, injected — never faked.** `captureVisibleTab`
+  only returns the current viewport and Chrome exposes no off-screen capture API. The service
+  gained an **optional** `scrollViewport(top)` dependency:
+  - **Absent** (all prior tests, any non-scrollable context) → byte-identical single-viewport
+    behavior. Below-fold images are simply not covered, and that limit is reported honestly.
+  - **Present** (production, injected by the panel via a `SCROLL_VIEWPORT` relay to the content
+    script) → the pure `planBelowFoldBands` planner groups whole-document candidates into at
+    most `MAX_BELOW_FOLD_BANDS = 3` viewport-height bands that actually contain candidates,
+    sharing the `MAX_REGIONS` budget (largest first). The service scrolls to each band,
+    captures the now-visible viewport, crops only that band's regions, analyses, and
+    **restores the original scroll** in a `finally`. Any band capture/scroll failure degrades
+    closed — that band's regions are skipped, never fabricated.
+- **Collector reports document-absolute inputs** (`scrollY`, `documentHeight`) and keeps
+  below-fold candidates (only content scrolled above the fold or off to the sides is culled).
+  Existing viewport-relative fields are unchanged, so raster/regions/E2E stay green.
+
+### Files
+
+- `extension/src/sidepanel/App.tsx` — runs the pipeline on `SCAN_PAGE`; injects a real
+  `scrollViewport`; renders the `ScanSummary` only.
+- `extension/src/scan/summary.ts`, `extension/src/scan/index.ts` — pure `buildScanSummary`.
+- `extension/src/perception/visual/service.ts` — optional `scrollViewport` dep + bounded band
+  loop with scroll-restore.
+- `extension/src/perception/visual/bands.ts` — pure `planBelowFoldBands` planner.
+- `extension/src/perception/visual/collect-candidates.ts` — keeps below-fold candidates; adds
+  `scrollY`/`documentHeight`.
+- `extension/src/content/index.ts`, `extension/src/background/index.ts`,
+  `extension/src/types/messages.ts` — `SCAN_PAGE` + `SCROLL_VIEWPORT` message contracts/relays.
+
+### Tests
+
+- `tests/unit/scan-summary.test.ts`, `tests/integration/scan-summary-leakage.test.ts` —
+  multi-region summary, section math, canary-absent-from-summary.
+- `tests/unit/visual-bands.test.ts` — planner coordinate math, banding, budget/cap, clipping.
+- `tests/integration/visual-belowfold.test.ts` — no-scroller honest limit; band capture with
+  scroll-restore; multiple independent below-fold regions; failed-band degrade-closed;
+  visible+below-fold together.
+- `tests/e2e/smoke.spec.ts`, `tests/e2e/scan-findings.spec.ts` — no raw dump; below-fold text
+  alias; critical credential blocks outbound; raw values + page heading absent from the panel.
+
+### Lightweight (<100 MB)
+
+Built `dist/` is **261 KB** (largest asset: the panel bundle at 218 KB / 69.5 KB gzip). No new
+AI/OCR/CV model, no new runtime dependency, no persisted screenshot/bitmap — browser-native
+`captureVisibleTab` + geometry/DOM metadata + bounded/lazy processing + temporary disposal.
+**<100 MB: PASS.**
+
+### Honest limitations
+
+- **No image-content classification.** No OCR/vision model is bundled; image regions are
+  surfaced as *masked regions + page section*, never a fabricated category.
+- **Band capture cannot recover content already scrolled above the fold** at snapshot time
+  (`rect.bottom <= 0` candidates are dropped) and is bounded to 3 extra bands; anything beyond
+  is not claimed as covered.
+- **A page opened before the extension loaded** has no content script → `PAGE_UNREACHABLE`;
+  the panel asks the user to reload (fail-closed, honest).
+
+---
+
+## 9e. Popup fix + OCR/vision content-analysis layer
+
+_Added 2026-08-30._
+
+### Priority 1 — the toolbar icon opened nothing (FIXED)
+
+**Root cause (diagnosed from the built `dist/manifest.json`, not guessed):** the manifest's
+`permissions` were `['storage','activeTab','scripting']` — MISSING `"sidePanel"`. Chrome only
+defines `chrome.sidePanel.*` when that permission is declared, so the background worker's
+`chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true })` silently no-opped.
+Combined with the earlier (correct) removal of `action.default_popup`, the toolbar action had
+neither a popup nor an enabled side-panel behavior → clicking did nothing.
+
+**Fix:** added `'sidePanel'` to `extension/manifest.ts` permissions. One line; no logic change.
+The PAGE_UNREACHABLE on-demand-injection fallback (§9d, `background/index.ts`) is untouched and
+still passes its 8 deterministic tests.
+
+**Regression guard:** `tests/integration/built-extension.test.ts` (8 assertions) validates the
+BUILT `dist/`: MV3 manifest shape, `sidePanel` permission present, `action.default_popup` absent
+(so it can't suppress the side panel), the side-panel HTML + background worker + every declared
+content-script file exist in `dist/`, and every non-external asset the panel HTML references
+resolves. Rebuilt `dist/manifest.json` confirmed to now carry `["storage","activeTab","scripting","sidePanel"]`.
+
+### Priority 2 — genuine OCR/vision content-analysis interface (NO engine bundled)
+
+The visual pipeline now has a provider-agnostic **content analyzer** boundary that recognizes
+WHAT sensitive value a captured region contains — distinct from the coarse structural
+`VisualProvider`. Reuses M3→M4→M5 unchanged in shape; additive only.
+
+- **Interface** (`perception/visual/types.ts`): `VisualContentAnalyzer.analyze(raster, region,
+  backend) → { status:'ok'|'not_available'|'failed', findings: RawVisualContentFinding[] }`.
+  Findings carry `category`, `confidence`, raster-space `bbox`, optional `text`.
+- **Honest default** (`perception/visual/content-analyzer.ts`): with no engine registered the
+  registry returns a constant analyzer that ALWAYS reports `not_available` and zero findings —
+  nothing is constructed, nothing is fabricated (CLAUDE.md §22). `registerVisualContentAnalyzer()`
+  is the single, lazy integration point for a real local ONNX/OCR engine later.
+- **Coordinate mapping** (`perception/visual/coords.ts`, pure): `mapRasterBboxToRegion` inverts
+  the rasterizer's crop+downscale so an engine's raster-pixel box maps back to the region's CSS-px
+  space (document-absolute for below-fold, viewport-relative for visible), clamped to analyzed pixels.
+- **Service wiring** (`perception/visual/service.ts`): after the structural provider, the same
+  raster is passed to the content analyzer. `ok` findings are mapped, region-tagged (`regionId`),
+  and returned on `VisualPerceptionResult.contentFindings`; `VisualPerceptionResult.contentStatus`
+  reports `not_available|ok|failed` honestly. An engine that throws → `failed`, zero findings.
+  Findings are cached alongside observations (repeat scans re-emit without re-running the engine).
+- **Masking integration** (`policy/index.ts`): each categorized visual finding is classified with
+  the SAME category table as DOM/PII, producing a per-finding decision with its bbox. Distinct
+  sub-boxes get distinct finding ids (`regionId#bbox`) so MULTIPLE INDEPENDENT findings survive;
+  M5 `mergeMaskRegions` keeps disjoint regions separate and merges only true overlaps. A critical
+  category (e.g. PASSWORD) in an image escalates to a page-level BLOCK (fail-closed, no cleartext).
+
+### Reality check (honest answers)
+
+- **Is REAL OCR/vision available?** NO. No engine is bundled; the default analyzer returns
+  `not_available`. The interface, coordinate mapping, masking, and tests are ready for a real
+  local engine to be dropped in via `registerVisualContentAnalyzer()`.
+- **Is image-based sensitive-data detection functional end-to-end?** The full path
+  (capture → region → analyzer → categorized finding → coord-map → policy → independent mask →
+  block) is functional and tested WITH A FAKE ENGINE. In production, with no engine registered,
+  it correctly yields zero visual content findings — by design, not by failure.
+- **Recognized `text` never leaks:** it stays on the local `VisualPerceptionResult` only; policy
+  never reads it and it is absent from `EnforcementResult` and the summary (canary test asserts this).
+
+### Tests added (all green)
+
+- `tests/integration/built-extension.test.ts` — 8 (Priority 1 build/manifest/asset validation).
+- `tests/unit/visual-coords.test.ts` — 5 (raster→region bbox conversion, clamping, degenerate).
+- `tests/unit/visual-content-analyzer.test.ts` — 4 (not_available default, laziness, single
+  in-flight construction, reset).
+- `tests/integration/visual-content-findings.test.ts` — 7 (not_available/no fabrication; ok→finding
+  with mapped doc coords + regionId; multiple independent findings; engine-throws→failed;
+  independent masks through M4→M5; critical→block+no cleartext; OCR-text canary non-leakage).
+
+### Gates (measured 2026-08-30)
+
+- `typecheck` ✅ · `lint` ✅ · `test` ✅ **243 passed** (23 files) · `build` ✅ · `e2e` ✅ **12 passed**.
+- **Lightweight:** `dist/` = **261 KB** total (largest asset 216 KB panel bundle). No new
+  dependencies, no bundled model/OCR/CV assets. <100 MB requirement: PASS.
+
+### Remaining limitations
+
+- No local OCR/vision engine ships yet (the whole point of the honest `not_available` default).
+- Below-fold IMAGE coverage remains bounded band-capture (§9d); below-fold TEXT is fully covered
+  via whole-page `innerText`. Unchanged by this work.
+- Fully-cached regions with no prior findings leave `contentStatus` unset (first scan reports it).
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
@@ -383,18 +820,26 @@ it.
 
 ## 11. Next milestone
 
-**M5 — Semantic sanitization + local alias vault.** Not started; awaiting explicit
-request.
+**M5 — Complete sanitization & privacy enforcement.** COMPLETE and verified
+(see §9c and `docs/m5-sanitization.md`).
 
-Entry points M5 should build on:
-- `decidePolicy()` from `extension/src/policy/index.ts` — act on
-  `action === 'SANITIZE'`; the decision's `signals` categories indicate what to
-  alias. See `docs/m4-policy-layer.md` §7.
-- The `Sanitizer` and `LocalVault` scaffold stubs
-  (`extension/src/sanitizer/index.ts`, `extension/src/vault/index.ts`).
-- `AliasRecord` in `extension/src/types/contracts.ts` — the alias→value mapping
-  MUST stay local (CLAUDE.md §5 Rule 3); the vault is its only home.
+The next milestone is **not started** and, per CLAUDE.md §24, will not begin
+until explicitly requested.
 
-M5 must uphold every privacy invariant M4 preserves: raw protected values never
-reach a remote payload, a log, or telemetry; only sanitized context crosses the
-boundary; the firewall (M7) remains the final fail-closed boundary.
+Entry points the next milestone builds on:
+- `enforcePrivacy()` from `extension/src/sanitizer` — returns an
+  `EnforcementResult` (`sanitizedText`, `aliases`, `visualMasks`, per-finding
+  `findings`, and the `blocked`/`restricted`/`enforced` gates). See
+  `docs/m5-sanitization.md`.
+- The `LocalVault` (`extension/src/vault/index.ts`) holds the alias→value
+  mapping in memory only; it MUST stay local (CLAUDE.md §5 Rule 3).
+- `RemoteAgentRequest` in `extension/src/types/contracts.ts` — the sanitized
+  payload shape a downstream milestone assembles from an `EnforcementResult`.
+
+Two integration points remain open (documented, not yet built): (1) the side
+panel now calls `enforcePrivacy()` on every scan and honours its fail-closed
+`blocked` gate in the UI (see §9d) — but no code yet assembles a
+`RemoteAgentRequest` from the `EnforcementResult` for an actual outbound send;
+(2) the outbound privacy firewall (CLAUDE.md §5 Rule 6/7) is the final boundary
+and is still pending. Both uphold the same invariant: raw protected values never
+reach a remote payload, a log, or telemetry.
