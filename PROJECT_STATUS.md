@@ -224,17 +224,24 @@ no `console.*` statement exists anywhere in `perception/visual/**`.
 
 ## 9b. Milestone 4 readiness
 
-**Status: COMPLETE (with E2E unexecuted — unchanged from M3)**
+**Status: COMPLETE (all gates executed, including E2E)**
 
 ### Scope
 
 A lightweight **local privacy decision / policy layer**: a pure, synchronous
-reducer that consumes the signals M0–M3 already produced and emits one
-deterministic, explainable `PolicyDecision` — `ALLOW` / `WARN` / `SANITIZE` /
-`BLOCK` with severity, decision confidence, reason code, contributing signal
-categories and a non-sensitive explanation. M4 runs **no** detection, OCR, vision,
-AI inference, or network I/O; it only decides. Full design in
-`docs/m4-policy-layer.md`.
+reducer that consumes the signals M0–M3 already produced and emits deterministic,
+explainable decisions. Two entry points share one core:
+
+- `decidePolicy` → one page-level `PolicyDecision` — `ALLOW` / `WARN` /
+  `SANITIZE` / `BLOCK` with severity, decision confidence, reason code,
+  contributing signal categories and a non-sensitive explanation.
+- `decidePolicyReport` → that rollup (`overall`) **plus** a per-finding
+  `FindingDecision` for **every** applicable finding/region, each carrying a
+  non-content `ref` (source + id + element handle + bbox) so a later sanitizer
+  can act on each region individually.
+
+M4 runs **no** detection, OCR, vision, AI inference, or network I/O; it only
+decides. Full design in `docs/m4-policy-layer.md`.
 
 ### Design decisions
 
@@ -256,19 +263,29 @@ AI inference, or network I/O; it only decides. Full design in
   never treated as safe.
 - **Pure consumer.** Being a synchronous reducer with no I/O, it cannot trigger
   M3 visual work and is safe to call on every page.
+- **Multi-region by construction.** `decidePolicyReport` preserves a decision for
+  every finding, not just the strongest. Exact duplicates collapse; conflicts on a
+  shared upstream id resolve to the stronger action (fail closed); distinct
+  overlapping regions are kept (geometric merging is M5's concern); output order is
+  deterministic. Each finding's `ref` carries location metadata only — never a raw
+  value, pixels, or a screenshot.
 
 ### Files added
 
-- `extension/src/policy/index.ts` — the `decidePolicy` engine.
-- `tests/unit/policy.test.ts` — 24 tests covering the 10 required scenarios.
-- `tests/integration/policy-leakage.test.ts` — canary/leakage + source scans.
+- `extension/src/policy/index.ts` — the `decidePolicy` / `decidePolicyReport` engine.
+- `tests/unit/policy.test.ts` — 35 tests (10 required `decidePolicy` scenarios +
+  multi-region `decidePolicyReport` coverage: visual region, multiple regions,
+  mixed text+visual, overlapping, duplicate, conflicting, malformed, allowed-fields).
+- `tests/integration/policy-leakage.test.ts` — canary/leakage across both
+  `decidePolicy` and `decidePolicyReport` + source scans.
 - `docs/m4-policy-layer.md` — contract, rules, privacy guarantees, integration.
 
 ### Files modified
 
 - `extension/src/types/contracts.ts` — additive M4 types only
   (`PolicyAction`, `RiskSeverity`, `PolicyReasonCode`, `PolicySignalCategory`,
-  `PolicySignals`, `PolicyDecision`). Nothing existing changed.
+  `PolicySignals`, `PolicyDecision`, and the per-finding `PolicyRegionRef` /
+  `FindingDecision` / `PolicyReport`). Nothing existing changed.
 
 ### Validation results — actually executed
 
@@ -276,45 +293,59 @@ AI inference, or network I/O; it only decides. Full design in
 | ---------- | ------------------- | ------ | -------- |
 | Typecheck  | `npm run typecheck` | ✅ pass | 0 errors |
 | Lint       | `npm run lint`      | ✅ pass | 0 errors |
-| Unit + integration | `npm test`  | ✅ pass | 10 files, 120 tests (was 8/92; +2 files, +28 tests) |
+| Unit + integration | `npm test`  | ✅ pass | 10 files, 137 tests (was 8/92 pre-M4; +2 files, +45 policy tests total) |
 | Build      | `npm run build`     | ✅ pass | 36 modules |
-| E2E        | `npm run e2e`       | ❌ **NOT EXECUTED** | 11/11 fail at browser launch (OS restriction; unchanged by M4) |
+| E2E        | `npm run e2e`       | ✅ **pass** | 11/11 passed — Chromium launched (the Aug-29 spawn restriction no longer holds) |
 
-**Test validity was mutation-tested, not assumed:** injecting the canary value
-into the decision explanation (`detail + JSON.stringify(rawEntities)`) failed
-exactly the two canary assertions in `policy-leakage.test.ts` — "no decision
-serializes the canary" and "explanation is built from categories and counts
-only" — and no others. The mutation was reverted; the suite is green.
+**Test validity was mutation-tested, not assumed** (2026-08-30, two rounds, both
+reverted): (A) leaking `entity.text` into a `FindingDecision.ref` failed exactly
+the report-canary, report allowed-keys, and unit allowed-fields tests; (B) leaking
+`entity.text` into the `overall` explanation failed exactly the decision-canary,
+explanation-content, and report-canary tests. Both the page-level explanation and
+the per-finding output are proven guarded; the suite is green after revert.
 
-### Bundle impact — zero
+### Bundle impact — zero shipped bytes
 
-| Artifact | After M3 | After M4 | Δ |
-| -------- | -------- | -------- | - |
-| Side panel chunk | `index.html-C1HzOecp.js` 201.41 kB | `index.html-C1HzOecp.js` 201.41 kB | **identical hash** |
-| Total `dist` | 214,916 B | 214,916 B | **0 B** |
+| Artifact | Committed HEAD (M4) | Working tree | Δ |
+| -------- | ------------------- | ------------ | - |
+| Side panel chunk (bytes) | 201,417 B | 201,417 B | **byte-for-byte identical** (`diff` empty) |
+| Module count | 36 | 36 | 0 |
+| Total `dist` size | 201.41 kB chunk / 63.88 kB gzip | same | 0 |
 
-M4 adds no shipped code: `policy/` is a pure library exercised by tests but not
-yet imported by the worker, content script, or panel. The panel chunk keeps the
-exact same content hash, proving M3's runtime is byte-for-byte unchanged and no
-new visual/OCR work was introduced. M5–M7 will wire the engine in.
+M4 adds no shipped code: `extension/src/policy/**` is a pure library imported only
+by tests (verified by grep — nothing under `extension/src` outside `policy/`
+imports it), so it tree-shakes out entirely. Building the committed HEAD and the
+working tree and diffing the emitted panel chunk shows **identical content**
+(201,417 bytes, empty diff). Note: the chunk's *filename hash* does shift when
+`contracts.ts` gains type-only exports (Rollup seeds content hashes from
+module-graph identifiers, not just emitted bytes) — so the earlier "identical
+hash" phrasing was replaced with a byte-level diff, which is the reliable measure.
+M5–M7 will wire the engine in.
 
 ### Privacy verification
 
 `tests/integration/policy-leakage.test.ts` embeds a synthetic canary in
 `entity.text` across clean, sensitive (email/phone/payment/credential), malformed
 and restricted inputs, spies all six `console` methods, and stubs `fetch` /
-`navigator.sendBeacon`. It asserts the canary never appears in the decision JSON,
-the explanation, the console, or any egress; that the decision exposes exactly
+`navigator.sendBeacon`. It asserts the canary never appears in the `decidePolicy`
+JSON, the full `decidePolicyReport` JSON (rollup **and** every finding), the
+explanation, the console, or any egress; that the decision exposes exactly
 `action, confidence, explanation, local, reasonCode, severity, signals` (no
-`text`/`entities`/`screenshot`); and that `extension/src/policy/**` contains no
-`console.*` and no `fetch`/`XMLHttpRequest`/`WebSocket`/`sendBeacon`/`localStorage`/
-`indexedDB`. The engine never reads `SensitiveEntity.text`, so raw values cannot
-reach the decision by construction.
+`text`/`entities`/`screenshot`) and each finding exactly `action, confidence,
+reasonCode, ref, severity, signal` (its `ref` carrying no `text`); and that
+`extension/src/policy/**` contains no `console.*` and no `fetch`/`XMLHttpRequest`/
+`WebSocket`/`sendBeacon`/`localStorage`/`indexedDB`. The engine never reads
+`SensitiveEntity.text`, so raw values cannot reach the decision or any finding by
+construction.
 
 ### Known limitations
 
-- **Decision-only.** M4 chooses an action; sanitization (M5), aliasing/vault
-  (M5), blocking (M7) and UI are separate milestones.
+- **Decision-only.** M4 chooses an action (per page and per finding); sanitization
+  (M5), aliasing/vault (M5), blocking (M7) and UI are separate milestones.
+- **No geometric region merging.** Overlapping-but-distinct regions are preserved
+  as separate findings; deciding whether two intersecting boxes are the same thing
+  and merging them is M5's job. M4 only collapses exact duplicates and resolves
+  same-id conflicts to the stronger action.
 - **Bounded by upstream.** A value M1/M2 does not emit, or a region M3 does not
   observe, is invisible to the policy layer. No new detection is performed.
 - **No detection-accuracy claim.** `confidence` is confidence in the *decision*,

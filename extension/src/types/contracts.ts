@@ -183,6 +183,61 @@ export interface PolicyDecision {
   local: true;
 }
 
+// ---------------------------------------------------------------------------
+// M4 — per-finding (multi-region) output.
+//
+// `decidePolicy` returns one page-level `PolicyDecision`. `decidePolicyReport`
+// returns that same rollup PLUS a decision for EVERY applicable finding/region,
+// so a later sanitization pass (M5) can act on each region individually. A
+// finding decision carries only the location metadata M5 needs — a stable id,
+// the perception source, an optional DOM element handle, and an optional
+// bounding box — NEVER the raw value (`SensitiveEntity.text`), pixels, or a
+// screenshot.
+// ---------------------------------------------------------------------------
+
+/**
+ * Location/metadata for one finding, preserved for downstream sanitization.
+ * Carries no raw content: `bbox` is geometry, `elementId` is a DOM handle,
+ * `findingId` is the upstream detector's id.
+ */
+export interface PolicyRegionRef {
+  /** Where the finding originated (DOM text, OCR, vision, or fused). */
+  source: PerceptionSource;
+  /** Stable id from the upstream finding (entity id or visual region id). */
+  findingId?: string;
+  /** DOM element handle from the collector, when the finding is DOM-based. */
+  elementId?: string;
+  /** Bounding box in CSS px, normalized to [x, y, width, height], when known. */
+  bbox?: [number, number, number, number];
+}
+
+/**
+ * A decision for a single finding/region. Same action vocabulary as
+ * `PolicyDecision`, scoped to one region and carrying its `ref` so M5 knows
+ * WHERE to act. Never carries the raw value.
+ */
+export interface FindingDecision {
+  ref: PolicyRegionRef;
+  action: PolicyAction;
+  severity: RiskSeverity;
+  reasonCode: PolicyReasonCode;
+  signal: PolicySignalCategory;
+  /** 0..1 confidence in THIS finding's decision. */
+  confidence: number;
+}
+
+/**
+ * The full multi-finding policy result: a page-level rollup (`overall`) plus a
+ * deterministic, deduped, per-finding decision list covering ALL applicable
+ * findings/regions on the page. `findings` is empty when nothing sensitive or
+ * uncertain was found, or when the decision is a whole-input fail-safe
+ * (malformed input / no signals available).
+ */
+export interface PolicyReport {
+  overall: PolicyDecision;
+  findings: FindingDecision[];
+}
+
 export interface AliasRecord {
   /** e.g. USER_EMAIL_1 */
   alias: string;

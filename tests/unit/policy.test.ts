@@ -10,6 +10,7 @@ import {
   POSSIBLE_CONFIDENCE,
   VISUAL_TEXT_LIKE_CONFIDENCE,
   decidePolicy,
+  decidePolicyReport,
 } from '../../extension/src/policy';
 import type {
   SensitiveEntity,
@@ -289,5 +290,216 @@ describe('decidePolicy — is a pure consumer (M0–M3 behaviour unchanged)', ()
     expect(d).not.toBeInstanceOf(Promise);
     expect(typeof d).toBe('object');
     expect(d.local).toBe(true);
+  });
+});
+
+// ==========================================================================
+// decidePolicyReport — per-finding (multi-region) decisions.
+//
+// The brief requires M4 to preserve a decision for EVERY applicable
+// finding/region (not just the strongest one), with the location metadata a
+// downstream sanitizer needs, and never the raw value.
+// ==========================================================================
+
+describe('decidePolicyReport — page rollup stays consistent with decidePolicy', () => {
+  it('report.overall equals the standalone page-level decision', () => {
+    const signals = { entities: [entity({ category: 'EMAIL', confidence: 1 })] };
+    expect(decidePolicyReport(signals).overall).toEqual(decidePolicy(signals));
+  });
+
+  it('clean input has no findings and ALLOWs', () => {
+    const r = decidePolicyReport({ entities: [] });
+    expect(r.overall.action).toBe('ALLOW');
+    expect(r.findings).toEqual([]);
+  });
+
+  it('a restricted page is page-level only — no per-region finding', () => {
+    const r = decidePolicyReport({ entities: [], restricted: true });
+    expect(r.overall.reasonCode).toBe('RESTRICTED_CONTEXT');
+    expect(r.findings).toEqual([]);
+  });
+});
+
+describe('decidePolicyReport — a sensitive visual/image region', () => {
+  it('preserves source and bbox for a VISION-sourced sensitive finding', () => {
+    const r = decidePolicyReport({
+      entities: [
+        entity({ id: 'img1', category: 'ID', source: 'VISION', bbox: [10, 20, 100, 40], confidence: 1 }),
+      ],
+    });
+    expect(r.overall.action).toBe('SANITIZE'); // ID = high, confirmed
+    expect(r.findings).toHaveLength(1);
+    const f = r.findings[0]!;
+    expect(f.ref.source).toBe('VISION');
+    expect(f.ref.bbox).toEqual([10, 20, 100, 40]);
+    expect(f.ref.findingId).toBe('img1');
+    expect(f.action).toBe('SANITIZE');
+    expect(f.signal).toBe('identity');
+  });
+
+  it('normalizes an {x,y,width,height} bbox object (M2/M3 shape drift) to a tuple', () => {
+    const bboxObject = { x: 5, y: 6, width: 7, height: 8 } as unknown as [number, number, number, number];
+    const r = decidePolicyReport({
+      entities: [entity({ id: 'obj', category: 'EMAIL', source: 'OCR', bbox: bboxObject, confidence: 1 })],
+    });
+    expect(r.findings[0]!.ref.bbox).toEqual([5, 6, 7, 8]);
+    expect(r.findings[0]!.ref.source).toBe('OCR');
+  });
+});
+
+describe('decidePolicyReport — MULTIPLE sensitive regions on one page', () => {
+  it('preserves a decision for ALL four findings (text A/D + visual B/C)', () => {
+    const r = decidePolicyReport({
+      entities: [
+        entity({ id: 'A', category: 'EMAIL', source: 'DOM', elementId: 'el-a', confidence: 1 }),
+        entity({ id: 'B', category: 'ID', source: 'VISION', bbox: [0, 0, 50, 50], confidence: 1 }),
+        entity({
+          id: 'C',
+          category: 'PAYMENT_CARD' as SensitiveEntity['category'],
+          source: 'VISION',
+          bbox: [60, 0, 50, 50],
+          confidence: 1,
+        }),
+        entity({ id: 'D', category: 'PHONE', source: 'DOM', elementId: 'el-d', confidence: 1 }),
+      ],
+    });
+    expect(r.findings).toHaveLength(4);
+    expect(r.findings.map((f) => f.ref.findingId).sort()).toEqual(['A', 'B', 'C', 'D']);
+
+    const byId = new Map(r.findings.map((f) => [f.ref.findingId, f]));
+    expect(byId.get('A')!.ref.elementId).toBe('el-a');
+    expect(byId.get('D')!.ref.elementId).toBe('el-d');
+    expect(byId.get('B')!.ref.bbox).toEqual([0, 0, 50, 50]);
+    expect(byId.get('C')!.ref.bbox).toEqual([60, 0, 50, 50]);
+
+    // Rollup is the strongest across all (all confirmed, none critical) → SANITIZE.
+    expect(r.overall.action).toBe('SANITIZE');
+    expect(r.overall.signals).toEqual(
+      expect.arrayContaining(['contact', 'identity', 'payment']),
+    );
+  });
+
+  it('findings order is deterministic regardless of input order', () => {
+    const a = decidePolicyReport({
+      entities: [
+        entity({ id: '1', category: 'EMAIL', confidence: 1 }),
+        entity({ id: '2', category: 'PASSWORD', confidence: 1 }),
+      ],
+    });
+    const b = decidePolicyReport({
+      entities: [
+        entity({ id: '2', category: 'PASSWORD', confidence: 1 }),
+        entity({ id: '1', category: 'EMAIL', confidence: 1 }),
+      ],
+    });
+    expect(a).toEqual(b);
+    // Strongest finding sorts first.
+    expect(a.findings[0]!.action).toBe('BLOCK');
+  });
+});
+
+describe('decidePolicyReport — mixed text + visual findings', () => {
+  it('keeps both a DOM entity and a visual region, rolls up to the stronger', () => {
+    const r = decidePolicyReport({
+      entities: [entity({ id: 'txt', category: 'EMAIL', confidence: 1 })],
+      visual: completedVisual([textLikeObservation(0.9)]),
+    });
+    expect(r.findings).toHaveLength(2);
+    expect(r.findings.map((f) => f.ref.source).sort()).toEqual(['DOM', 'VISION']);
+
+    const visualFinding = r.findings.find((f) => f.signal === 'visual_uncertain')!;
+    expect(visualFinding.action).toBe('WARN');
+    expect(visualFinding.reasonCode).toBe('VISUAL_UNCERTAINTY');
+    expect(visualFinding.ref.findingId).toBe('r1'); // region id from the observation
+    expect(visualFinding.ref.bbox).toEqual([0, 0, 100, 40]);
+
+    // SANITIZE (email) outranks WARN (visual uncertainty).
+    expect(r.overall.action).toBe('SANITIZE');
+  });
+
+  it('emits one finding per confident text-like region', () => {
+    const r = decidePolicyReport({
+      entities: [],
+      visual: completedVisual([
+        { ...textLikeObservation(0.8), region: { id: 'rA', x: 0, y: 0, width: 10, height: 10 } },
+        { ...textLikeObservation(0.9), region: { id: 'rB', x: 20, y: 0, width: 10, height: 10 } },
+      ]),
+    });
+    expect(r.findings).toHaveLength(2);
+    expect(r.findings.map((f) => f.ref.findingId).sort()).toEqual(['rA', 'rB']);
+    expect(r.overall.action).toBe('WARN');
+  });
+});
+
+describe('decidePolicyReport — overlapping, duplicate, and conflicting findings', () => {
+  it('preserves overlapping-but-distinct regions (merging is a later concern)', () => {
+    const r = decidePolicyReport({
+      entities: [
+        entity({ id: 'o1', category: 'ID', source: 'VISION', bbox: [0, 0, 100, 100], confidence: 1 }),
+        entity({ id: 'o2', category: 'ID', source: 'VISION', bbox: [50, 50, 100, 100], confidence: 1 }),
+      ],
+    });
+    expect(r.findings).toHaveLength(2);
+  });
+
+  it('collapses exact duplicate findings (same id) to one', () => {
+    const dup = entity({ id: 'same', category: 'EMAIL', confidence: 1 });
+    const r = decidePolicyReport({ entities: [dup, { ...dup }] });
+    expect(r.findings).toHaveLength(1);
+    expect(r.overall.action).toBe('SANITIZE');
+  });
+
+  it('resolves a conflict on the same id to the stronger action (fail closed)', () => {
+    const r = decidePolicyReport({
+      entities: [
+        entity({ id: 'x', category: 'EMAIL', confidence: 1 }), // SANITIZE
+        entity({ id: 'x', category: 'PASSWORD', confidence: 1 }), // BLOCK
+      ],
+    });
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0]!.action).toBe('BLOCK');
+    expect(r.overall.action).toBe('BLOCK');
+  });
+});
+
+describe('decidePolicyReport — malformed region fails closed, is not dropped', () => {
+  it('surfaces a malformed entity as a WARN finding rather than discarding it', () => {
+    const r = decidePolicyReport({
+      entities: [{ region: 'not-a-real-entity' } as unknown as SensitiveEntity],
+    });
+    expect(r.overall.action).toBe('WARN');
+    expect(r.overall.reasonCode).toBe('MALFORMED_SIGNAL');
+    expect(r.findings).toHaveLength(1);
+    expect(r.findings[0]!.reasonCode).toBe('MALFORMED_SIGNAL');
+  });
+});
+
+describe('decidePolicyReport — a finding exposes only the allowed fields', () => {
+  it('has exactly {ref, action, severity, reasonCode, signal, confidence} and no raw value', () => {
+    const secret = 'inline.secret+kk@example.test';
+    const r = decidePolicyReport({
+      entities: [
+        entity({
+          id: 'k',
+          category: 'EMAIL',
+          text: secret,
+          elementId: 'el',
+          bbox: [1, 2, 3, 4],
+          confidence: 1,
+        }),
+      ],
+    });
+    const f = r.findings[0]!;
+    expect(Object.keys(f).sort()).toEqual([
+      'action',
+      'confidence',
+      'reasonCode',
+      'ref',
+      'severity',
+      'signal',
+    ]);
+    expect(Object.keys(f.ref).sort()).toEqual(['bbox', 'elementId', 'findingId', 'source']);
+    expect(f.ref).not.toHaveProperty('text');
+    expect(JSON.stringify(r)).not.toContain(secret);
   });
 });

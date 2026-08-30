@@ -11,7 +11,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { decidePolicy } from '../../extension/src/policy';
+import { decidePolicy, decidePolicyReport } from '../../extension/src/policy';
 import type { PolicySignals, SensitiveEntity } from '../../extension/src/types/contracts';
 
 /** Synthetic canary — a raw secret value that must never leave the local vault. */
@@ -126,6 +126,47 @@ describe('the policy engine performs no I/O', () => {
 
   it('opens no network channel', () => {
     for (const input of CANARY_INPUTS) decidePolicy(input);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(sendBeaconSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('the raw protected value never reaches the multi-finding report', () => {
+  it('no report — overall or per-finding — serializes the canary, across every branch', () => {
+    for (const input of CANARY_INPUTS) {
+      const serialized = JSON.stringify(decidePolicyReport(input));
+      expect(serialized).not.toContain(CANARY_SECRET);
+      expect(serialized).not.toContain('pa55w0rd');
+    }
+  });
+
+  it('every finding exposes only its allowed keys and no raw value', () => {
+    const report = decidePolicyReport({
+      entities: [
+        entity({ id: 'a', category: 'EMAIL', text: CANARY_SECRET, elementId: 'el-a', confidence: 1 }),
+        entity({ id: 'b', category: 'PASSWORD', text: CANARY_SECRET, bbox: [1, 2, 3, 4], confidence: 1 }),
+      ],
+    });
+    expect(report.findings.length).toBeGreaterThan(0);
+    for (const finding of report.findings) {
+      expect(Object.keys(finding).sort()).toEqual([
+        'action',
+        'confidence',
+        'reasonCode',
+        'ref',
+        'severity',
+        'signal',
+      ]);
+      expect(finding).not.toHaveProperty('text');
+      expect(finding.ref).not.toHaveProperty('text');
+      expect(JSON.stringify(finding)).not.toContain(CANARY_SECRET);
+    }
+  });
+
+  it('building the report writes nothing to the console and opens no network channel', () => {
+    for (const input of CANARY_INPUTS) decidePolicyReport(input);
+    decidePolicyReport(null as unknown as PolicySignals);
+    expect(consoleOutput()).toBe('');
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(sendBeaconSpy).not.toHaveBeenCalled();
   });

@@ -2,23 +2,36 @@
 //
 // A pure, synchronous reducer over the signals M0–M3 already produced. It does
 // NOT detect, capture, OCR, run a model, perform I/O, or log. Given
-// `PolicySignals` it returns one deterministic `PolicyDecision`.
+// `PolicySignals` it returns a deterministic decision.
+//
+// Two entry points, same core:
+//   - `decidePolicy`        → one page-level `PolicyDecision` (the rollup).
+//   - `decidePolicyReport`  → the rollup PLUS a per-finding `FindingDecision`
+//                             for every applicable finding/region, so a later
+//                             sanitization pass (M5) can act on each region.
 //
 // Design rules (CLAUDE.md §5, §16, §22):
 //   - Fail closed. A missing, unavailable, or malformed signal never yields
 //     ALLOW. Absence of evidence is not evidence of safety.
-//   - No raw values escape. The decision is built from category tags and counts
-//     only; `SensitiveEntity.text` is never read, so it can never leak into the
-//     explanation, the signals list, or a log line (there are no log lines).
-//   - Deterministic. Same input → same output. No clocks, no randomness.
+//   - No raw values escape. Decisions are built from category tags, counts, and
+//     location metadata (bbox / element handle / id) only; `SensitiveEntity.text`
+//     is never read, so it can never leak into an explanation, a finding, a
+//     signals list, or a log line (there are no log lines).
+//   - Deterministic. Same input → same output, independent of finding order. No
+//     clocks, no randomness.
 //
 // This module deliberately holds NO reference to pixels, rasters, screenshots,
-// or the visual capture — it only reads M3's derived, non-reversible labels.
+// or the visual capture — it only reads M3's derived, non-reversible labels and
+// geometry.
 
 import type {
+  FindingDecision,
+  PerceptionSource,
   PolicyAction,
   PolicyDecision,
   PolicyReasonCode,
+  PolicyRegionRef,
+  PolicyReport,
   PolicySignalCategory,
   PolicySignals,
   RiskSeverity,
@@ -94,22 +107,12 @@ const ACTION_PRECEDENCE: Readonly<Record<PolicyAction, number>> = {
   BLOCK: 3,
 };
 
-// ---------------------------------------------------------------------------
-// Internal contribution model. Each signal produces zero or more contributions;
-// the decision is the highest-precedence one.
-// ---------------------------------------------------------------------------
+const PERCEPTION_SOURCES: readonly PerceptionSource[] = ['DOM', 'OCR', 'VISION', 'FUSED'];
 
-type ConfidenceBand = 'confirmed' | 'possible';
-
-interface Contribution {
-  action: PolicyAction;
-  reasonCode: PolicyReasonCode;
-  severity: RiskSeverity;
-  signal: PolicySignalCategory;
-  band: ConfidenceBand;
-  /** 0..1 — used for tie-breaking and as the decision confidence when this wins. */
-  confidence: number;
-}
+// ---------------------------------------------------------------------------
+// Small runtime guards. The engine accepts untrusted upstream data, so every
+// field is validated at runtime regardless of its declared type.
+// ---------------------------------------------------------------------------
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -122,6 +125,64 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
     : null;
+}
+
+/** Normalize a bounding box to a `[x, y, width, height]` tuple. Accepts either
+ *  the declared tuple form OR the `{x,y,width,height}` object the DOM collector
+ *  emits (a known M2/M3 shape drift). Returns undefined if geometry is absent or
+ *  not fully numeric — coordinates are never fabricated. */
+function normalizeBbox(raw: unknown): [number, number, number, number] | undefined {
+  if (Array.isArray(raw) && raw.length === 4) {
+    const nums = raw.filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+    if (nums.length === 4) return [nums[0]!, nums[1]!, nums[2]!, nums[3]!];
+    return undefined;
+  }
+  const rec = asRecord(raw);
+  if (rec) {
+    const { x, y, width, height } = rec;
+    if (
+      typeof x === 'number' &&
+      typeof y === 'number' &&
+      typeof width === 'number' &&
+      typeof height === 'number' &&
+      [x, y, width, height].every((n) => Number.isFinite(n))
+    ) {
+      return [x, y, width, height];
+    }
+  }
+  return undefined;
+}
+
+/** Map any perception-source string (case-insensitive; e.g. M3's lowercase
+ *  'vision'/'ocr') to the declared `PerceptionSource`, else undefined. */
+function normalizeSource(raw: unknown): PerceptionSource | undefined {
+  if (typeof raw !== 'string') return undefined;
+  const up = raw.toUpperCase();
+  return (PERCEPTION_SOURCES as readonly string[]).includes(up)
+    ? (up as PerceptionSource)
+    : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Internal contribution model. Each signal produces zero or more contributions;
+// the page-level decision is the highest-precedence one, and each contribution
+// that carries a `ref` also becomes a per-finding decision.
+// ---------------------------------------------------------------------------
+
+type ConfidenceBand = 'confirmed' | 'possible';
+
+interface Contribution {
+  action: PolicyAction;
+  reasonCode: PolicyReasonCode;
+  severity: RiskSeverity;
+  signal: PolicySignalCategory;
+  band: ConfidenceBand;
+  /** 0..1 — used for tie-breaking and as the decision confidence when this wins. */
+  confidence: number;
+  /** Present ⇒ this contribution corresponds to a concrete finding/region and
+   *  is surfaced in `PolicyReport.findings`. Absent ⇒ page-level only
+   *  (restricted surface, whole-input malformed shape). */
+  ref?: PolicyRegionRef;
 }
 
 /**
@@ -150,18 +211,40 @@ function actionFor(
   return { action: 'ALLOW', reasonCode: 'NO_SENSITIVE_DATA' };
 }
 
-const MALFORMED_CONTRIBUTION: Contribution = {
+/** Build a non-sensitive location ref from an entity-shaped record. Salvages
+ *  only trusted, non-content fields; never reads `text`. */
+function refFromEntity(rec: Record<string, unknown>): PolicyRegionRef {
+  const ref: PolicyRegionRef = { source: normalizeSource(rec.source) ?? 'DOM' };
+  if (typeof rec.id === 'string' && rec.id.length > 0) ref.findingId = rec.id;
+  if (typeof rec.elementId === 'string' && rec.elementId.length > 0) ref.elementId = rec.elementId;
+  const bbox = normalizeBbox(rec.bbox);
+  if (bbox) ref.bbox = bbox;
+  return ref;
+}
+
+const MALFORMED_BASE = {
   action: 'WARN',
   reasonCode: 'MALFORMED_SIGNAL',
   severity: 'medium',
   signal: 'dom_pii',
   band: 'possible',
   confidence: MALFORMED_DECISION_CONFIDENCE,
-};
+} as const satisfies Omit<Contribution, 'ref'>;
+
+/** A shape-level malformed contribution (no finding to point at). */
+const MALFORMED_CONTRIBUTION: Contribution = { ...MALFORMED_BASE };
+
+/** A malformed entity is still a finding: fail closed and keep whatever
+ *  location we can trust, rather than silently dropping it (which would read as
+ *  "safe"). */
+function malformedEntityContribution(raw: unknown): Contribution {
+  const rec = asRecord(raw);
+  return { ...MALFORMED_BASE, ref: rec ? refFromEntity(rec) : { source: 'DOM' } };
+}
 
 /**
  * Classify one entity-shaped value.
- *   - returns a Contribution when it is a sensitive hit,
+ *   - returns a Contribution (with a `ref`) when it is a sensitive hit,
  *   - returns null when it ran but is benign (e.g. UNCLASSIFIED text),
  *   - returns 'malformed' when the value is not a usable entity.
  */
@@ -187,13 +270,14 @@ function classifyEntity(raw: unknown): Contribution | null | 'malformed' {
     signal: cls.signal,
     band,
     confidence: clamp01(confidence),
+    ref: refFromEntity(rec),
   };
 }
 
 /**
- * Inspect an M3 `VisualPerceptionResult`. Returns any visual contributions plus
- * whether the visual layer reported a restricted page. Only a COMPLETED result
- * carrying a confident `text_like_content` observation contributes — and it
+ * Inspect an M3 `VisualPerceptionResult`. Returns one contribution per confident
+ * `text_like_content` region (each carrying that region's geometry), plus
+ * whether the visual layer reported a restricted page. A visual region
  * contributes UNCERTAINTY, never a sensitivity verdict (M3 reads no text).
  * `not_required` / `unavailable` / `running` contribute nothing, so an ordinary
  * DOM-first page is never dragged to WARN by the visual layer.
@@ -215,33 +299,35 @@ function inspectVisual(raw: unknown): {
   }
 
   const observations = Array.isArray(rec.observations) ? rec.observations : [];
-  let maxTextLikeConfidence = -1;
+  const contributions: Contribution[] = [];
   for (const obs of observations) {
     const orec = asRecord(obs);
     if (!orec) continue;
     const labels = Array.isArray(orec.observations) ? orec.observations : [];
     const conf = typeof orec.confidence === 'number' ? orec.confidence : 0;
-    if (labels.includes('text_like_content') && conf >= VISUAL_TEXT_LIKE_CONFIDENCE) {
-      if (conf > maxTextLikeConfidence) maxTextLikeConfidence = conf;
-    }
-  }
+    if (!labels.includes('text_like_content') || conf < VISUAL_TEXT_LIKE_CONFIDENCE) continue;
 
-  if (maxTextLikeConfidence < 0) {
-    return { contributions: [], extraSignals: [], restrictedFromVisual: false };
+    const region = asRecord(orec.region);
+    const ref: PolicyRegionRef = { source: normalizeSource(orec.source) ?? 'VISION' };
+    if (region) {
+      if (typeof region.id === 'string' && region.id.length > 0) ref.findingId = region.id;
+      const bbox = normalizeBbox(region);
+      if (bbox) ref.bbox = bbox;
+    }
+    contributions.push({
+      action: 'WARN',
+      reasonCode: 'VISUAL_UNCERTAINTY',
+      severity: 'low',
+      signal: 'visual_uncertain',
+      band: 'possible',
+      confidence: clamp01(conf),
+      ref,
+    });
   }
 
   return {
-    contributions: [
-      {
-        action: 'WARN',
-        reasonCode: 'VISUAL_UNCERTAINTY',
-        severity: 'low',
-        signal: 'visual_uncertain',
-        band: 'possible',
-        confidence: clamp01(maxTextLikeConfidence),
-      },
-    ],
-    extraSignals: ['visual_text_like'],
+    contributions,
+    extraSignals: contributions.length > 0 ? ['visual_text_like'] : [],
     restrictedFromVisual: false,
   };
 }
@@ -315,43 +401,101 @@ function decision(
 }
 
 // ---------------------------------------------------------------------------
-// Public entry point.
+// Per-finding derivation: dedupe, conflict-resolve, and deterministically sort.
+// ---------------------------------------------------------------------------
+
+function contributionToFinding(c: Contribution & { ref: PolicyRegionRef }): FindingDecision {
+  return {
+    ref: c.ref,
+    action: c.action,
+    severity: c.severity,
+    reasonCode: c.reasonCode,
+    signal: c.signal,
+    confidence: c.confidence,
+  };
+}
+
+/** Stable identity key. Findings that share an upstream id are the same finding
+ *  (conflicts on it resolve to the stronger action); otherwise identity is the
+ *  origin + element + geometry + signal, so exact duplicates collapse while
+ *  distinct (even overlapping) regions are preserved. */
+function findingKey(f: FindingDecision): string {
+  const r = f.ref;
+  if (r.findingId) return `id:${r.findingId}`;
+  const bbox = r.bbox ? r.bbox.join(',') : '';
+  return `loc:${r.source}|${r.elementId ?? ''}|${bbox}|${f.signal}`;
+}
+
+function stronger(a: FindingDecision, b: FindingDecision): FindingDecision {
+  const dp = ACTION_PRECEDENCE[b.action] - ACTION_PRECEDENCE[a.action];
+  if (dp > 0) return b;
+  if (dp < 0) return a;
+  const ds = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+  if (ds > 0) return b;
+  if (ds < 0) return a;
+  return b.confidence > a.confidence ? b : a;
+}
+
+function dedupeAndSortFindings(findings: FindingDecision[]): FindingDecision[] {
+  const map = new Map<string, FindingDecision>();
+  for (const f of findings) {
+    const k = findingKey(f);
+    const prev = map.get(k);
+    map.set(k, prev ? stronger(prev, f) : f);
+  }
+  return Array.from(map.values()).sort((a, b) => {
+    const dp = ACTION_PRECEDENCE[b.action] - ACTION_PRECEDENCE[a.action];
+    if (dp !== 0) return dp;
+    const ds = SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity];
+    if (ds !== 0) return ds;
+    const ka = findingKey(a);
+    const kb = findingKey(b);
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public entry points.
 // ---------------------------------------------------------------------------
 
 /**
- * Decide how the extension should treat the current context, given the signals
- * M0–M3 produced. Pure and synchronous; safe to call on every page because it
- * performs no work of its own beyond reducing the signals it is handed.
+ * Decide how the extension should treat the current context AND return a
+ * per-finding decision for every applicable finding/region. Pure and
+ * synchronous; safe to call on every page because it performs no work of its
+ * own beyond reducing the signals it is handed.
  */
-export function decidePolicy(signals: PolicySignals): PolicyDecision {
+export function decidePolicyReport(signals: PolicySignals): PolicyReport {
   const root = asRecord(signals);
   if (!root) {
-    // Whole input is missing/garbage → fail closed.
-    return decision(
-      'WARN',
-      'medium',
-      MALFORMED_DECISION_CONFIDENCE,
-      'MALFORMED_SIGNAL',
-      [],
-      'signal object was missing or not an object',
-    );
+    // Whole input is missing/garbage → fail closed, no findings to enumerate.
+    return {
+      overall: decision(
+        'WARN',
+        'medium',
+        MALFORMED_DECISION_CONFIDENCE,
+        'MALFORMED_SIGNAL',
+        [],
+        'signal object was missing or not an object',
+      ),
+      findings: [],
+    };
   }
 
   const contributions: Contribution[] = [];
   const extraSignals: PolicySignalCategory[] = [];
 
-  // --- Entities (M1/M2) ---------------------------------------------------
+  // --- Entities (M1/M2; any perception source) ----------------------------
   const rawEntities = root.entities;
   let entitiesRan = false;
   if (Array.isArray(rawEntities)) {
     entitiesRan = true;
     for (const e of rawEntities) {
       const c = classifyEntity(e);
-      if (c === 'malformed') contributions.push(MALFORMED_CONTRIBUTION);
+      if (c === 'malformed') contributions.push(malformedEntityContribution(e));
       else if (c) contributions.push(c);
     }
   } else if (rawEntities !== undefined) {
-    // Present but not an array → malformed shape.
+    // Present but not an array → malformed shape (no finding to point at).
     contributions.push(MALFORMED_CONTRIBUTION);
   }
 
@@ -360,7 +504,7 @@ export function decidePolicy(signals: PolicySignals): PolicyDecision {
   contributions.push(...visual.contributions);
   extraSignals.push(...visual.extraSignals);
 
-  // --- Restricted page ----------------------------------------------------
+  // --- Restricted page (page-level; not a region) -------------------------
   const restricted = root.restricted === true || visual.restrictedFromVisual;
   if (restricted) {
     contributions.push({
@@ -376,27 +520,33 @@ export function decidePolicy(signals: PolicySignals): PolicyDecision {
   // --- No contributions: either ALLOW (ran, clean) or fail-safe WARN ------
   if (contributions.length === 0) {
     if (entitiesRan) {
-      return decision(
-        'ALLOW',
-        'none',
-        ALLOW_DECISION_CONFIDENCE,
-        'NO_SENSITIVE_DATA',
-        [],
-        'entities analysed, none classified sensitive',
-      );
+      return {
+        overall: decision(
+          'ALLOW',
+          'none',
+          ALLOW_DECISION_CONFIDENCE,
+          'NO_SENSITIVE_DATA',
+          [],
+          'entities analysed, none classified sensitive',
+        ),
+        findings: [],
+      };
     }
     // Nothing ran that we can trust → never assume safe.
-    return decision(
-      'WARN',
-      'low',
-      UNAVAILABLE_DECISION_CONFIDENCE,
-      'SIGNAL_UNAVAILABLE',
-      [],
-      'no entity, visual, or restriction signal was provided',
-    );
+    return {
+      overall: decision(
+        'WARN',
+        'low',
+        UNAVAILABLE_DECISION_CONFIDENCE,
+        'SIGNAL_UNAVAILABLE',
+        [],
+        'no entity, visual, or restriction signal was provided',
+      ),
+      findings: [],
+    };
   }
 
-  // --- Reduce to the dominant contribution --------------------------------
+  // --- Reduce to the dominant contribution (page-level rollup) ------------
   const dominant = selectDominant(contributions);
   const maxSeverity = contributions.reduce<RiskSeverity>((acc, c) => {
     return SEVERITY_RANK[c.severity] > SEVERITY_RANK[acc] ? c.severity : acc;
@@ -405,7 +555,7 @@ export function decidePolicy(signals: PolicySignals): PolicyDecision {
   const allSignals = contributions.map((c) => c.signal).concat(extraSignals);
   const detail = summarizeContributions(contributions);
 
-  return decision(
+  const overall = decision(
     dominant.action,
     maxSeverity,
     dominant.confidence,
@@ -413,4 +563,20 @@ export function decidePolicy(signals: PolicySignals): PolicyDecision {
     allSignals,
     detail,
   );
+
+  // --- Per-finding decisions (only contributions tied to a region) --------
+  const findingContributions = contributions.filter(
+    (c): c is Contribution & { ref: PolicyRegionRef } => c.ref !== undefined,
+  );
+  const findings = dedupeAndSortFindings(findingContributions.map(contributionToFinding));
+
+  return { overall, findings };
+}
+
+/**
+ * Page-level decision only — the `overall` rollup from `decidePolicyReport`.
+ * Retained as the primary entry point for callers that need a single verdict.
+ */
+export function decidePolicy(signals: PolicySignals): PolicyDecision {
+  return decidePolicyReport(signals).overall;
 }
