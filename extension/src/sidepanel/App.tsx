@@ -8,6 +8,7 @@
 
 import { useState } from 'react';
 import { VisualStatus } from './VisualStatus';
+import { AgentTask } from './AgentTask';
 import { detectPII } from '../perception/pii';
 import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
@@ -218,6 +219,7 @@ export function App() {
       )}
 
       <VisualStatus />
+      <AgentTask />
     </main>
   );
 }

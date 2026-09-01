@@ -14,9 +14,11 @@
 import { isRestrictedUrl } from '../perception/visual/restricted';
 import {
   CAPTURE_VIEWPORT,
+  EXECUTE_ACTION,
   SCAN_PAGE,
   SCROLL_VIEWPORT,
   type CaptureViewportResponse,
+  type ExecuteActionResponse,
   type ScanPageResponse,
   type ScrollViewportResponse,
 } from '../types/messages';
@@ -148,6 +150,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   if (message?.type === CAPTURE_VIEWPORT) {
     void captureActiveViewport().then(sendResponse);
+    return true; // async sendResponse
+  }
+
+  // M6 — execute one validated structured action in the active tab. The action has
+  // already passed schema + policy validation and LOCAL alias resolution before it is
+  // relayed; the worker adds no interpretation and forwards structured codes only.
+  if (message?.type === EXECUTE_ACTION) {
+    void relayToActiveTab<ExecuteActionResponse>(
+      { type: EXECUTE_ACTION, action: message.action },
+      (response) => response === undefined,
+      (code) => ({ ok: false, code }),
+    ).then(sendResponse);
     return true; // async sendResponse
   }
 

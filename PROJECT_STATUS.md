@@ -798,6 +798,125 @@ WHAT sensitive value a captured region contains — distinct from the coarse str
 
 ---
 
+## 9f. Milestone 6 — agent loop, action bridge, firewall seam, backend planner
+
+_Added 2026-09-01. All numbers below were actually measured in this workspace; nothing is
+claimed that was not run (CLAUDE.md §22)._
+
+### Scope
+
+The M6 milestone from `docs/architecture.md`: the provider-agnostic **agent**, the
+**structured action validator + local action bridge**, and — because a working loop
+requires egress — the **privacy firewall** that CLAUDE.md §5 Rule 6 makes the single
+outbound boundary. Plus the backend planner endpoint (`POST /v1/plan`) and a CI
+workflow (the repository previously had none).
+
+### Design decisions
+
+- **Panel-driven loop, pure modules.** `runAgentLoop` (`extension/src/agent/loop.ts`)
+  lives in a DI-only module: observation (SCAN_PAGE relay), enforcement (M4+M5),
+  firewall, planner and bridge are all injected, so unit tests run the REAL
+  enforcement/firewall/planner against fake pages. The panel (`AgentTask.tsx`) only
+  wires real implementations and renders alias-level step records.
+- **Stateless planner; the page state is the loop memory.** The deterministic planner
+  (`agent/planner.ts`) is a pure function of the sanitized request and returns AT MOST
+  ONE action. After execution the loop re-observes: a filled field reports `filled:
+  true` in the sanitized structure, so the planner advances without any memory. This
+  also makes it prompt-injection-resistant by construction: page labels are matched
+  only against a fixed structural keyword table, never interpreted as instructions
+  (CLAUDE.md §6) — asserted by a dedicated unit test.
+- **`SanitizedNode`s carry no values.** The remote planner sees field semantics
+  (tag/type/label/name), a `filled` boolean and a CSS selector — never a value. A
+  label/name crosses only when the M2 detector finds nothing in it (fail closed,
+  gated in `toSanitizedNodes`).
+- **Two-stage validation, then LOCAL resolution, then execution.**
+  `actions/validate.ts` (pure): schema (exact shapes, no extra fields — a malicious
+  planner cannot smuggle payload) and policy (NAVIGATE only to allowlisted https
+  origins — default-deny; bounded SCROLL; TYPE/SELECT values must be an alias or scan
+  clean against `detectPII`, so a hallucinating/malicious planner cannot type a raw
+  protected value). `actions/index.ts` bridge: schema → policy → vault.resolve (alias
+  → value, on-device, latest possible moment) → content-script execution. Unknown or
+  expired aliases fail closed (`ALIAS_UNKNOWN`).
+- **Firewall = structure + alias grammar + content scan.** `firewall/inspect.ts` fails
+  closed unless the payload is EXACTLY a `RemoteAgentRequest` (no missing/extra keys),
+  every alias matches `USER_<CATEGORY>_<n>`, and the same local detector (M2) scans
+  clean over every text-bearing string. Honest limit (documented, §13): it cannot
+  prove absence of PII the detector does not recognize; that risk is bounded upstream
+  by `enforcePrivacy` withholding `sanitizedText` unless the page was fully enforced.
+- **No-progress guard.** Executing the identical action twice in a row (e.g. a submit
+  button that never disables) stops the loop with `max_steps/NO_PROGRESS` instead of
+  silently burning the step budget.
+- **Fail-closed stops everywhere:** blocked page (critical credential), restricted
+  surface, unenforceable findings, firewall deny, planner failure, rejected action —
+  each a structured status surfaced in the UI, never retried blindly, never silent.
+- **Backend mirrors the extension planner.** `backend/fastapi/app/agent.py` implements
+  the same deterministic heuristics over the sanitized contract (pydantic-validated:
+  alias grammar, action-kind allowlist, size caps → 422), with `AGENT_PROVIDER` as the
+  S4 seam — selecting `remote` raises 501 rather than pretending (CLAUDE.md §22).
+
+### Files added
+
+- `extension/src/actions/validate.ts`, `extension/src/actions/index.ts` (rewritten from the M0 stub)
+- `extension/src/agent/planner.ts`, `extension/src/agent/remote.ts`, `extension/src/agent/loop.ts`, `extension/src/agent/index.ts` (rewritten from the M0 stub)
+- `extension/src/firewall/inspect.ts`, `extension/src/firewall/index.ts` (implemented from the M7 seam — required for any egress)
+- `extension/src/sidepanel/AgentTask.tsx`
+- `backend/fastapi/app/agent.py`, `backend/fastapi/tests/test_plan.py`
+- `tests/unit/{agent-planner,actions-validate,firewall,agent-loop}.test.ts`
+- `tests/integration/agent-leakage.test.ts`, `tests/e2e/agent-task.spec.ts`
+- `.github/workflows/ci.yml`
+
+### Files modified
+
+- `extension/src/types/contracts.ts` — additive M6 types (`SanitizedNode`); `RemoteAgentRequest.sanitizedPageStructure` narrowed from `unknown[]` to `SanitizedNode[]` (nothing else constructed it yet)
+- `extension/src/types/messages.ts` — additive `EXECUTE_ACTION` channel + `FieldStructure` on `ScanPageResponse` (raw, INTERNAL-ONLY, same boundary as `pageText`)
+- `extension/src/content/index.ts` — structure collection + constrained `EXECUTE_ACTION` executor (CLICK/TYPE/SELECT/SCROLL/NAVIGATE only; structured outcome codes; never evaluates page strings)
+- `extension/src/background/index.ts` — `EXECUTE_ACTION` relay via the existing hardened relay path (no new permissions)
+- `extension/src/sidepanel/App.tsx` — 2 lines (import + `<AgentTask />`)
+- `backend/fastapi/app/main.py` — added `POST /v1/plan`; `/health` untouched
+
+### Validation results — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck | `npm run typecheck` | ✅ pass (0 errors) |
+| Lint | `npm run lint` | ✅ pass (0 errors) |
+| Unit + integration | `npm test` | ✅ **308 passed / 308** (31 files; was 271 — +37 new) |
+| Build | `npm run build` | ✅ pass |
+| E2E | `npm run e2e` | ✅ **13 passed / 13** (was 12 — +1 agent-task spec) |
+| Backend | `pytest -q` (backend/fastapi) | ✅ **9 passed / 9** |
+| CI | `.github/workflows/ci.yml` | added (node gates, backend pytest, e2e job) |
+
+### Privacy verification (canary-based, CLAUDE.md §13)
+
+`tests/integration/agent-leakage.test.ts` plants synthetic canaries
+(`CANARY_EMAIL_001@example.test`, `555-123-4567`) in the page text of a full
+fill-and-submit run and asserts: (1) `fetch`/XHR/WebSocket/`sendBeacon` are stubbed to
+THROW and are never hit — the deterministic loop performs zero network I/O; (2) step
+records and every observed outbound request contain the aliases but never the canaries;
+(3) alias→value mappings exist only in the local vault; (4) console spies see no
+canary; (5) the remote gateway transmits ONLY after a firewall allow verdict, sends the
+inspected payload verbatim, refuses on deny, and rejects malformed planner responses.
+A source scan proves the firewall/validator/planner/loop modules contain no
+`console.*`/network/storage calls.
+
+### Known limitations
+
+- **No LLM provider yet.** The remote planner provider is a loud 501 seam (`S4`); the
+  Ollama/VLM adapter (`qwen2.5vl:7b`, JSON-schema-constrained) lands next. The
+  deterministic planner fully drives the demo.
+- **The agent loop uses DOM signals only.** M3 visual/OCR findings are part of the
+  scan-time pipeline but are not fed into per-step enforcement (cost/latency); a page
+  whose sensitive data exists ONLY inside images is filled-blank by the planner. Documented, not hidden.
+- **The firewall cannot prove absence of undetectable PII** (free-text names etc.) —
+  bounded upstream by `enforcePrivacy`'s withhold-cleartext gate; stated honestly.
+- **NAVIGATE is default-denied** (empty allowlist) — no e2e coverage of allowed
+  navigation yet; the validator is unit-tested.
+- **Below-fold controls** appear in the structure (whole-document query) but the
+  planner has no scrolling strategy of its own yet; SCROLL exists and is validated but
+  the deterministic planner never emits it.
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
@@ -820,26 +939,19 @@ it.
 
 ## 11. Next milestone
 
-**M5 — Complete sanitization & privacy enforcement.** COMPLETE and verified
-(see §9c and `docs/m5-sanitization.md`).
+**M6 — agent loop, action bridge, firewall seam, backend planner.** COMPLETE and
+verified (see §9f). The two integration points left open by §9c are now closed:
+(1) the loop assembles a `RemoteAgentRequest` from `enforcePrivacy` output and (2)
+every outbound payload passes the implemented fail-closed firewall
+(`extension/src/firewall/inspect.ts`).
 
 The next milestone is **not started** and, per CLAUDE.md §24, will not begin
-until explicitly requested.
+until explicitly requested. Natural follow-ups, in rough order:
 
-Entry points the next milestone builds on:
-- `enforcePrivacy()` from `extension/src/sanitizer` — returns an
-  `EnforcementResult` (`sanitizedText`, `aliases`, `visualMasks`, per-finding
-  `findings`, and the `blocked`/`restricted`/`enforced` gates). See
-  `docs/m5-sanitization.md`.
-- The `LocalVault` (`extension/src/vault/index.ts`) holds the alias→value
-  mapping in memory only; it MUST stay local (CLAUDE.md §5 Rule 3).
-- `RemoteAgentRequest` in `extension/src/types/contracts.ts` — the sanitized
-  payload shape a downstream milestone assembles from an `EnforcementResult`.
-
-Two integration points remain open (documented, not yet built): (1) the side
-panel now calls `enforcePrivacy()` on every scan and honours its fail-closed
-`blocked` gate in the UI (see §9d) — but no code yet assembles a
-`RemoteAgentRequest` from the `EnforcementResult` for an actual outbound send;
-(2) the outbound privacy firewall (CLAUDE.md §5 Rule 6/7) is the final boundary
-and is still pending. Both uphold the same invariant: raw protected values never
-reach a remote payload, a log, or telemetry.
+1. **S4 — remote provider adapter:** Ollama (`qwen2.5vl:7b`) behind
+   `AGENT_PROVIDER=remote` (the 501 seam in `backend/fastapi/app/agent.py`),
+   JSON-schema-constrained actions, retries/timeouts; e2e against the live backend.
+2. **M7 — telemetry + leakage sentinel:** persist `PrivacyEvent`s (structured,
+   value-free), benchmark harness over `benchmark/` pages, canary reports.
+3. **Loop hardening:** visual/OCR signals in per-step enforcement, planner-driven
+   SCROLL for below-fold controls, allowlisted navigation coverage in e2e.

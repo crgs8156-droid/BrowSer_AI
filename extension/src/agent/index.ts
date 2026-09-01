@@ -1,16 +1,29 @@
+// M6 — agent module public surface.
+//
+// `AgentGateway` is the provider-agnostic planner interface (blueprint §8). Two
+// implementations ship in M6:
+//   - `createDeterministicPlanner` — pure, offline, reproducible (the blueprint's
+//     recommended first planner);
+//   - `createRemoteHttpAgentGateway` — posts through the privacy firewall to the
+//     FastAPI backend (`POST /v1/plan`); the LLM/Ollama provider itself lands in S4.
+
 import type { AgentAction, RemoteAgentRequest } from '../types/contracts';
 
-// Agent gateway (blueprint §8). Provider-agnostic: the first implementation is a
-// deterministic JSON action planner (no LLM provider chosen — see docs/interface-contracts.md §2).
-// Implemented in M6.
 export interface AgentGateway {
-  plan(_request: RemoteAgentRequest): Promise<AgentAction[]>;
+  plan(request: RemoteAgentRequest): Promise<AgentAction[]>;
 }
 
-export function createAgentGateway(): AgentGateway {
-  return {
-    plan() {
-      throw new Error('PrivAgent: AgentGateway.plan not implemented (M6).');
-    },
-  };
-}
+export { createDeterministicPlanner, planDeterministic } from './planner';
+export {
+  createRemoteHttpAgentGateway,
+  FirewallBlockedError,
+  type RemoteHttpAgentGatewayOptions,
+} from './remote';
+export {
+  runAgentLoop,
+  toSanitizedNodes,
+  type AgentLoopOptions,
+  type AgentRunResult,
+  type AgentRunStatus,
+  type AgentStepRecord,
+} from './loop';
