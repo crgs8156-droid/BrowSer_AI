@@ -1064,6 +1064,47 @@ client-side resource-utilization metric.
 
 ---
 
+## 9i. Visual-context accuracy measured (rubric #1) — live OCR verification closed
+
+_Added 2026-09-01, same session as §9h._
+
+### Scope
+
+The last unmeasured rubric line (#1, 25%): pages whose sensitive values exist ONLY as
+painted pixels. A new e2e suite (`tests/e2e/visual-accuracy.spec.ts`) renders canvas-only
+pages, runs the REAL local pipeline (scan + visual check), and measures category-level
+accuracy via a value-free stats seam (`sidepanel/visual-stats.ts`: per-category counts
+only — recognized text/bboxes are never exposed, matching what the agent itself sees).
+
+### Root cause found and fixed en route
+
+The structural analysis budget (`MAX_ANALYSIS_EDGE = 192`) shrank 642px canvases to
+192px — 28px text became ~8px, unreadable. `OCR_ANALYSIS_EDGE = 1024` is now used for
+the analysis raster ONLY when a content analyzer is registered; the default no-engine
+pipeline is byte-identical to before.
+
+### Measured
+
+- contentStatus `ok` — the Tesseract.js wasm engine verifiably runs in headless Chromium
+  (closes the §0 "pending manual Chrome verification" item)
+- Category-level accuracy **100%** (2/2 pages: EMAIL+PHONE, PAYMENT), 0 false positives
+- Scan summary shows `OCR_REGION_n` masked rows with `textCount: 0` (visual-only proof)
+
+### Files
+
+- Added: `tests/e2e/visual-accuracy.spec.ts`, `extension/src/sidepanel/visual-stats.ts`
+- Modified: `extension/src/perception/visual/regions.ts` (`OCR_ANALYSIS_EDGE`),
+  `extension/src/perception/visual/service.ts` (conditional elevation),
+  `extension/src/sidepanel/{VisualStatus,App}.tsx` (stats recording),
+  `docs/benchmark.md` (rubric #1 section)
+
+### Validation — actually executed
+
+typecheck ✅ lint ✅ vitest **318/318** ✅ bench 3/3 ✅ build ✅ e2e **21/21** (+4) ✅
+backend 10/10 ✅ — reports: `benchmark/reports/visual-accuracy.{json,md}`
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by

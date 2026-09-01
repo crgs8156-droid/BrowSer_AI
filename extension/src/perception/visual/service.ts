@@ -33,10 +33,13 @@ import { VisualRegionCache, computeRasterDigest } from './cache';
 import { detectVisualCapabilities, preferredBackend } from './capability';
 import { decideVisualPerception } from './decision';
 import { createBrowserRasterizer } from './raster';
-import { MAX_ANALYSIS_EDGE, MAX_REGIONS, selectRegions } from './regions';
+import { MAX_ANALYSIS_EDGE, MAX_REGIONS, OCR_ANALYSIS_EDGE, selectRegions } from './regions';
 import { planBelowFoldBands } from './bands';
 import { disposeVisualProvider, resolveVisualProvider } from './providers/registry';
-import { resolveVisualContentAnalyzer } from './content-analyzer';
+import {
+  isVisualContentAnalyzerAvailable,
+  resolveVisualContentAnalyzer,
+} from './content-analyzer';
 import { mapRasterBboxToRegion } from './coords';
 import { BROWSER_RESTRICTION_REASON, isRestrictedUrl } from './restricted';
 import type { RasterizeFn, VisualCapabilities } from './types';
@@ -221,7 +224,9 @@ export function createVisualPerceptionService(
         for (const { crop, region } of entries) {
           const raster = await rasterize(captureDataUrl, crop, {
             viewportWidth,
-            maxEdge: MAX_ANALYSIS_EDGE,
+            // OCR needs pixel density: elevate the analysis edge ONLY when a content
+            // analyzer is registered, so the default (no-engine) pipeline is unchanged.
+            maxEdge: isVisualContentAnalyzerAvailable() ? OCR_ANALYSIS_EDGE : MAX_ANALYSIS_EDGE,
           });
           if (raster === null) continue;
 

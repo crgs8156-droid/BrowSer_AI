@@ -21,6 +21,7 @@ import { buildScanSummary, type ScanFindingView, type ScanSummary } from '../sca
 import { ocrTrace } from '../diag/ocr-trace';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
 import { TelemetryPanel } from './TelemetryPanel';
+import { recordVisualStats } from './visual-stats';
 import { captureViaBackground } from './capture';
 
 type ScanState = 'idle' | 'scanning' | 'done' | 'restricted' | 'error';
@@ -114,6 +115,7 @@ export function App() {
       const visualStartedAt = performance.now();
       const visual = await getVisualService().run(snapshot);
       sessionTelemetry.timing('scan.visual', performance.now() - visualStartedAt);
+      recordVisualStats(visual);
 
       // M4 (policy) + M5 (enforce): alias every recoverable value into the LOCAL vault,
       // mask visual regions, and produce a structured, safe result. `redact` runs on the

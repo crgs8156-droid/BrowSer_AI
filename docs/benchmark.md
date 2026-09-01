@@ -49,6 +49,27 @@ Resource utilization (rubric #4): the honest proxies measured today are bundle s
 `performance.memory` is Chromium-only and unreliable under automation — measured only
 when present. CPU/GPU/RAM on target hardware: not yet instrumented (documented gap).
 
+## Visual-context accuracy (rubric #1 — 25%)
+
+Planted values rendered ONLY as canvas pixels (`fillText`, no DOM text) — the DOM layer
+contributes nothing, so any detection proves the local vision path. The REAL
+Tesseract.js wasm engine (extension-local assets) runs in headless Chromium via the
+e2e suite; category-level accuracy (the value-free surface the agent sees) is measured
+and written to `benchmark/reports/visual-accuracy.{json,md}`.
+
+| Page | Expected | Detected | Engine |
+| --- | --- | --- | --- |
+| canvas-contact | EMAIL, PHONE | EMAIL, PHONE | ok |
+| canvas-card | PAYMENT | PAYMENT | ok |
+
+**Accuracy: 100% (2/2 pages, category-level)** — this also closes the "live wasm
+recognition pending manual Chrome verification" item: the engine verifiably runs.
+
+Engineering note (blueprint §3 lightweight rule): the structural analysis budget
+(`MAX_ANALYSIS_EDGE = 192`) shrinks text below OCR-readability, so the service elevates
+the analysis raster to `OCR_ANALYSIS_EDGE = 1024` ONLY when a content analyzer is
+registered — the default no-engine pipeline is unchanged.
+
 ## Measured results (fixtures v1, 2026-09-01, CI sandbox)
 
 | Metric | Value |

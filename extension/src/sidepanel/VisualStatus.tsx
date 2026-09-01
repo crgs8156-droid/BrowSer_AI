@@ -10,6 +10,7 @@ import type { VisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionResult, VisualPerceptionStatus } from '../types/contracts';
 import { COLLECT_VISUAL_CANDIDATES, type VisualCandidatesResponse } from '../types/messages';
 import { captureViaBackground } from './capture';
+import { recordVisualStats } from './visual-stats';
 
 const STATUS_LABELS: Record<VisualPerceptionStatus, string> = {
   not_required: 'Not required — DOM was sufficient',
@@ -80,7 +81,9 @@ export function VisualStatus() {
         return;
       }
 
-      setResult(await getService().run(response.snapshot));
+      const result = await getService().run(response.snapshot);
+      recordVisualStats(result);
+      setResult(result);
     } catch {
       setError('Visual perception could not run.');
     } finally {

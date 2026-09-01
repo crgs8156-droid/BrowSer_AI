@@ -11,6 +11,13 @@ import { MIN_CANDIDATE_EDGE } from './decision';
 export const MAX_REGIONS = 4;
 /** Analysis raster is downscaled so its longest edge is at most this many px. */
 export const MAX_ANALYSIS_EDGE = 192;
+/**
+ * Analysis raster edge for regions that will also be fed to an OCR/vision CONTENT
+ * analyzer: pattern recognition needs real pixel density, and the structural
+ * `MAX_ANALYSIS_EDGE` budget shrinks 28px text to unreadable ~8px. Used ONLY when a
+ * content analyzer is registered, so the default pipeline is unchanged.
+ */
+export const OCR_ANALYSIS_EDGE = 1024;
 
 /** Clamp a candidate rect into the visible viewport, in integer CSS pixels. */
 function clampToViewport(
