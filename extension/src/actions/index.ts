@@ -1,4 +1,4 @@
-// M6 — local action bridge (blueprint §7/§9, CLAUDE.md §7).
+// M6 — local action bridge (blueprint §7/§9, CONTRIBUTING.md §7).
 //
 // The FULL validation pipeline every agent action must pass before it touches the page:
 //
@@ -36,7 +36,8 @@ export interface ActionBridge {
 }
 
 export interface ActionBridgeOptions {
-  policy?: ActionPolicy;
+  /** Static policy, or a provider resolved per execution (session allowlists change). */
+  policy?: ActionPolicy | (() => ActionPolicy);
   /** Local alias↔value store. TYPE/SELECT values that are aliases resolve here. */
   vault: LocalVault;
   /** Transport to the page executor. Injectable for tests. */
@@ -54,7 +55,8 @@ async function executeViaContentScript(action: AgentAction): Promise<ExecuteActi
 }
 
 export function createActionBridge(options: ActionBridgeOptions): ActionBridge {
-  const policy = options.policy ?? DEFAULT_ACTION_POLICY;
+  const resolvePolicy = (): ActionPolicy =>
+    typeof options.policy === 'function' ? options.policy() : (options.policy ?? DEFAULT_ACTION_POLICY);
   const sendToPage = options.sendToPage ?? executeViaContentScript;
   const { vault } = options;
 
@@ -63,7 +65,7 @@ export function createActionBridge(options: ActionBridgeOptions): ActionBridge {
       const schema = validateActionSchema(action);
       if (!schema.valid) return { ok: false, code: schema.reason };
 
-      const policyVerdict = validateActionPolicy(action, policy);
+      const policyVerdict = validateActionPolicy(action, resolvePolicy());
       if (!policyVerdict.valid) return { ok: false, code: policyVerdict.reason };
 
       // Stage 3 — resolve a TYPE/SELECT alias to the real value, ON-DEVICE, as late as

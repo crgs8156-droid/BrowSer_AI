@@ -1,7 +1,7 @@
 // M7 — telemetry / audit log (blueprint §13 Dashboard input, §4 module table).
 //
 // Records PRIVACY EVENTS and STAGE TIMINGS only. The value-free invariant
-// (CLAUDE.md §5 Rule 4, blueprint Invariant 3) is enforced BY CONSTRUCTION: the
+// (CONTRIBUTING.md §5 Rule 4, blueprint Invariant 3) is enforced BY CONSTRUCTION: the
 // recorder copies a fixed allowlist of fields from each event and drops everything
 // else, so a caller cannot smuggle a raw value into the log even by accident.
 // Timings carry names (fixed enum-ish strings) and milliseconds — never content.

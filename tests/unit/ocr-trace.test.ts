@@ -2,7 +2,7 @@
 //
 // The tracer is the ONLY place the visual/OCR pipeline writes diagnostics. Its job is
 // to make the capture→OCR→findings→UI path observable in a live browser WITHOUT ever
-// logging raw protected content (CLAUDE.md §5 Rule 4, §22). These tests pin: (1) it
+// logging raw protected content (CONTRIBUTING.md §5 Rule 4, §22). These tests pin: (1) it
 // emits under one greppable, content-free prefix; (2) soft failures warn, normal stages
 // inform, nothing errors (so the "no console errors" smoke check cannot trip); (3) only
 // the safe scalar metadata it is handed is ever printed.

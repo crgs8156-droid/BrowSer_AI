@@ -14,14 +14,14 @@ export default defineManifest({
   // action/menu/command click). Broad patterns like `http://*/*` + `https://*/*` are NOT
   // accepted for it, and our capture is triggered from a side-panel button (not a gesture
   // that grants activeTab) — so `<all_urls>` is the documented minimum that lets capture
-  // succeed on ordinary pages. Verified against Chrome docs; not invented (CLAUDE.md §3).
+  // succeed on ordinary pages. Verified against Chrome docs; not invented (CONTRIBUTING.md §3).
   // The captured data URL is rasterized locally and never leaves the device (§5, §9).
   host_permissions: ['<all_urls>'],
   // The local OCR engine (Tesseract.js) instantiates WebAssembly in the side-panel
   // document, which MV3 forbids under the default CSP. `'wasm-unsafe-eval'` permits
   // wasm compilation ONLY; no remote/eval script is allowed. All OCR assets
   // (worker, wasm core, language data) are packaged and loaded from the extension
-  // origin ('self') — never from a network origin (CLAUDE.md §5, §9).
+  // origin ('self') — never from a network origin (CONTRIBUTING.md §5, §9).
   content_security_policy: {
     extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'",
   },

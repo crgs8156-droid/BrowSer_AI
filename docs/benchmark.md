@@ -2,7 +2,7 @@
 
 Grounded in blueprint §10 (SIH-Grade Benchmark & Metrics), §7 (leakage sentinel) and
 §11 (experimental comparison). Every number below is MEASURED by `npm run bench`
-(no fabrication — CLAUDE.md §22); the runner writes timestamped artifacts under
+(no fabrication — CONTRIBUTING.md §22); the runner writes timestamped artifacts under
 `benchmark/reports/` (gitignored).
 
 ## How to run

@@ -9,7 +9,7 @@
 // than surface PAGE_UNREACHABLE immediately, we inject the content script on demand with
 // `chrome.scripting.executeScript` (using our `scripting` + http/https `host_permissions`,
 // no extra grant needed) and retry. PAGE_UNREACHABLE is reported ONLY when injection itself
-// is refused — i.e. the browser genuinely forbids access (fail closed, CLAUDE.md §5 Rule 7).
+// is refused — i.e. the browser genuinely forbids access (fail closed, CONTRIBUTING.md §5 Rule 7).
 
 import { isRestrictedUrl } from '../perception/visual/restricted';
 import {

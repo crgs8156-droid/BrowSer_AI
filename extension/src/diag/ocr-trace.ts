@@ -4,7 +4,7 @@
 // developer see exactly where the visual/OCR path stops producing regions in a real
 // browser (capture refused? pixels invalid? engine unavailable? no text recognized?).
 //
-// PRIVACY (CLAUDE.md §5 Rule 4, §22): this logger MUST NEVER receive raw protected
+// PRIVACY (CONTRIBUTING.md §5 Rule 4, §22): this logger MUST NEVER receive raw protected
 // content. Its `detail` type admits only numbers, booleans, and short enum-like strings
 // (stage codes, region ids, category names, reason codes) — never recognized OCR text,
 // page text, pixels, or a capture data URL. Callers pass counts/dimensions/ids only.

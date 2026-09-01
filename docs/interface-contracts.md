@@ -27,7 +27,7 @@ DETECTED ──▶ ALLOCATED ──▶ IN_USE (remote) ──▶ RESOLVED (local
 
 ## 2. Remote AI input contract (provider-agnostic)
 
-The remote agent receives a single **sanitized** request object. The provider (which LLM/API) is **deliberately not chosen yet** — justification: the blueprint (§8) recommends starting with a _deterministic action planner or simple JSON-emitting agent_ to make the demo reproducible and reduce debugging; the privacy boundary is provider-independent; and CLAUDE.md §3 forbids inventing model capabilities. A thin **provider adapter** will map this contract to a concrete API when one is chosen (target ≈ M6).
+The remote agent receives a single **sanitized** request object. The provider (which LLM/API) is **deliberately not chosen yet** — justification: the blueprint (§8) recommends starting with a _deterministic action planner or simple JSON-emitting agent_ to make the demo reproducible and reduce debugging; the privacy boundary is provider-independent; and CONTRIBUTING.md §3 forbids inventing model capabilities. A thin **provider adapter** will map this contract to a concrete API when one is chosen (target ≈ M6).
 
 ```ts
 // sketch — subject to refinement
@@ -56,7 +56,7 @@ type AgentAction =
   | { action: 'NAVIGATE'; url: string };
 ```
 
-**Validation pipeline** (PDF §7 action contract, §9 validation column; CLAUDE.md §7):
+**Validation pipeline** (PDF §7 action contract, §9 validation column; CONTRIBUTING.md §7):
 
 ```
 Agent output

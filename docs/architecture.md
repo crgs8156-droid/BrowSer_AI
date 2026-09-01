@@ -39,7 +39,7 @@ All outbound network traffic to a remote model/backend passes through
 **`firewall/`** and nothing else. The firewall is the last checkpoint before the
 remote boundary and **fails closed** — if it cannot establish that a payload is
 alias-only and free of protected values, it blocks. Raw protected values and
-alias→value mappings never leave the device and are never logged (CLAUDE.md §5).
+alias→value mappings never leave the device and are never logged (CONTRIBUTING.md §5).
 
 ```
 page DOM (untrusted)

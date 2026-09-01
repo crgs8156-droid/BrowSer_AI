@@ -62,6 +62,8 @@ export interface FieldStructure {
   /** Current field value. Raw — INTERNAL ONLY. */
   value?: string;
   disabled: boolean;
+  /** True when the control is below the current viewport fold (viewport-relative top). */
+  belowFold?: boolean;
 }
 
 /**

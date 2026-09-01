@@ -6,7 +6,7 @@
 // these tests prove it holds across clean, sensitive, malformed and restricted
 // inputs, and that the source contains no logging or egress at all.
 //
-// Synthetic canaries only (CLAUDE.md §13/§15). If a canary escapes, these fail.
+// Synthetic canaries only (CONTRIBUTING.md §13/§15). If a canary escapes, these fail.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';

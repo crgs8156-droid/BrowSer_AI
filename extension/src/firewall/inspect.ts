@@ -1,4 +1,4 @@
-// M6/M7 seam — privacy firewall (blueprint §7, CLAUDE.md §5).
+// M6/M7 seam — privacy firewall (blueprint §7, CONTRIBUTING.md §5).
 //
 // The SINGLE outbound boundary. Every `RemoteAgentRequest` passes `inspect()` before
 // any transmission, and the verdict FAILS CLOSED: if safety cannot be established the
@@ -17,7 +17,7 @@
 // What the firewall deliberately does NOT claim: it cannot prove the absence of raw
 // values the detector does not recognize (e.g. free-text names). That residual risk is
 // bounded upstream — `EnforcementResult` only emits `sanitizedText` when the page was
-// fully enforced — and documented honestly (CLAUDE.md §22: no fabricated guarantees).
+// fully enforced — and documented honestly (CONTRIBUTING.md §22: no fabricated guarantees).
 //
 // This module performs no logging and no network I/O.
 
@@ -42,6 +42,7 @@ const ALIAS_PATTERN = /^USER_[A-Z]+_\d+$/;
 
 const REQUEST_KEYS = new Set([
   'taskObjective',
+  'pageOrigin',
   'sanitizedPageStructure',
   'sanitizedVisibleText',
   'aliases',
@@ -68,8 +69,9 @@ function isValidNode(node: unknown): boolean {
     const value = n[optional];
     if (value !== undefined && typeof value !== 'string') return false;
   }
+  if (n['belowFold'] !== undefined && typeof n['belowFold'] !== 'boolean') return false;
   for (const key of Object.keys(n)) {
-    if (!['tag', 'selector', 'inputType', 'label', 'name', 'filled', 'disabled'].includes(key)) {
+    if (!['tag', 'selector', 'inputType', 'label', 'name', 'filled', 'disabled', 'belowFold'].includes(key)) {
       return false;
     }
   }
@@ -103,7 +105,9 @@ export function createPrivacyFirewall(): PrivacyFirewall {
       }
 
       const r = request as unknown as Record<string, unknown>;
-      const missing = [...REQUEST_KEYS].filter((key) => !(key in r));
+      // `pageOrigin` is OPTIONAL (origin-only when present); every other key is required.
+      const required = [...REQUEST_KEYS].filter((key) => key !== 'pageOrigin');
+      const missing = required.filter((key) => !(key in r));
       if (missing.length > 0) return Promise.resolve(deny('FIREWALL_MALFORMED'));
 
       if (typeof r['taskObjective'] !== 'string' || (r['taskObjective'] as string).length > MAX_TASK_LENGTH) {
@@ -140,6 +144,19 @@ export function createPrivacyFirewall(): PrivacyFirewall {
         !availableActions.every((kind) => (ALLOWED_ACTION_KINDS as readonly string[]).includes(kind as string))
       ) {
         return Promise.resolve(deny('FIREWALL_BAD_ACTIONS'));
+      }
+
+      // pageOrigin: origin-only string (never a full URL) — validated as such.
+      if (r['pageOrigin'] !== undefined) {
+        if (typeof r['pageOrigin'] !== 'string') return Promise.resolve(deny('FIREWALL_MALFORMED'));
+        try {
+          const parsed = new URL(r['pageOrigin'] as string);
+          if (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
+            return Promise.resolve(deny('FIREWALL_MALFORMED'));
+          }
+        } catch {
+          return Promise.resolve(deny('FIREWALL_MALFORMED'));
+        }
       }
 
       const policy = r['policy'];

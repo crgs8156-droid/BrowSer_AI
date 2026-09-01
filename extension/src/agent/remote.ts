@@ -2,7 +2,7 @@
 //
 // Posts a `RemoteAgentRequest` to a backend endpoint and expects structured actions
 // back. PRIVACY: the request passes the privacy firewall BEFORE anything is sent
-// (CLAUDE.md §5 Rule 6) — this gateway cannot transmit without a verdict, and a deny
+// (CONTRIBUTING.md §5 Rule 6) — this gateway cannot transmit without a verdict, and a deny
 // is surfaced as a thrown tagged error so the loop fails closed and visibly.
 //
 // The backend (`backend/fastapi`, POST /v1/plan) must never receive raw protected

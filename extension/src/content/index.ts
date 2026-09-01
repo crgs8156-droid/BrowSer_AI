@@ -1,5 +1,5 @@
 // PrivAgent content script.
-// SECURITY: webpage content is UNTRUSTED (CLAUDE.md §6). This script never evaluates
+// SECURITY: webpage content is UNTRUSTED (CONTRIBUTING.md §6). This script never evaluates
 // page-supplied strings and never returns raw markup. It answers a SCAN_PAGE request
 // with only the structured inputs the local pipeline needs:
 //   - `pageText`  : user-visible text (whole page + form-field values) for M2 detection
@@ -103,6 +103,7 @@ function collectFieldStructure(): FieldStructure[] {
 
     const selector = selectorFor(el, fallback++);
     const structure: FieldStructure = { tag: tag as FieldStructure['tag'], selector, disabled: (el as HTMLButtonElement).disabled };
+    if (el.getBoundingClientRect().top >= window.innerHeight) structure.belowFold = true;
 
     if (el.id) structure.id = el.id;
     const name = el.getAttribute('name') ?? undefined;
@@ -139,7 +140,7 @@ function isInteractable(el: Element): boolean {
  * Execute one structured agent action. The action was validated and its `TYPE` value
  * resolved (alias → real value) BEFORE reaching this script; the resolved value transits
  * only the LOCAL extension messaging channel. No page-supplied string is ever evaluated,
- * and no arbitrary code runs (CLAUDE.md §6/§7).
+ * and no arbitrary code runs (CONTRIBUTING.md §6/§7).
  */
 function executeActionInPage(action: AgentAction): ExecuteActionResponse {
   if (action.action === 'SCROLL') {
@@ -149,7 +150,8 @@ function executeActionInPage(action: AgentAction): ExecuteActionResponse {
 
   if (action.action === 'NAVIGATE') {
     // Policy validation (allowlist) already approved this URL before it got here.
-    window.location.assign(action.url);
+    // Respond FIRST, then navigate: the reply channel dies with the old document.
+    setTimeout(() => window.location.assign(action.url), 0);
     return { ok: true, code: 'OK' };
   }
 
@@ -159,6 +161,7 @@ function executeActionInPage(action: AgentAction): ExecuteActionResponse {
 
   if (action.action === 'CLICK') {
     if ((el as HTMLButtonElement).disabled) return { ok: false, code: 'DISABLED' };
+    el.scrollIntoView({ block: 'center', behavior: 'auto' });
     el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
     return { ok: true, code: 'OK' };
   }
@@ -166,6 +169,7 @@ function executeActionInPage(action: AgentAction): ExecuteActionResponse {
   if (action.action === 'TYPE') {
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
       if (el.disabled || el.readOnly) return { ok: false, code: 'DISABLED' };
+      el.scrollIntoView({ block: 'center', behavior: 'auto' });
       el.value = action.value;
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -177,6 +181,7 @@ function executeActionInPage(action: AgentAction): ExecuteActionResponse {
   if (action.action === 'SELECT') {
     if (el instanceof HTMLSelectElement) {
       if (el.disabled) return { ok: false, code: 'DISABLED' };
+      el.scrollIntoView({ block: 'center', behavior: 'auto' });
       const option = Array.from(el.options).find((o) => o.value === action.value);
       if (!option) return { ok: false, code: 'NO_SUCH_OPTION' };
       el.value = action.value;

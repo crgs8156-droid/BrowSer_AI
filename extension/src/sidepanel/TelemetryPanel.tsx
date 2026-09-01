@@ -3,7 +3,7 @@
 // Renders the session's privacy-event counts and stage-timing percentiles from the
 // session telemetry. BY DESIGN this panel can only ever show counts and milliseconds:
 // the telemetry recorder's allowlist-copy makes raw values impossible here
-// (CLAUDE.md §5 Rule 4), so the dashboard is evidence, not a leak surface.
+// (CONTRIBUTING.md §5 Rule 4), so the dashboard is evidence, not a leak surface.
 
 import { useSyncExternalStore } from 'react';
 import {

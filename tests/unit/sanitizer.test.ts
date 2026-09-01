@@ -1,6 +1,6 @@
 // M5 — sanitizer primitive unit tests: alias allocation, category normalisation,
 // literal redaction, the text `Sanitizer`, region merging, and pixel masking.
-// Every value is synthetic (CLAUDE.md §13/§15).
+// Every value is synthetic (CONTRIBUTING.md §13/§15).
 
 import { describe, expect, it } from 'vitest';
 import {

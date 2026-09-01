@@ -4,7 +4,7 @@
 // window: the content-analysis status and per-CATEGORY counts of OCR/vision findings.
 // Deliberately NOT exposed: recognized text, bboxes, region ids, pixels — the agent
 // never receives those either, so category counts are exactly the accuracy surface
-// that matters. Value-free by construction (CLAUDE.md §5 Rule 4).
+// that matters. Value-free by construction (CONTRIBUTING.md §5 Rule 4).
 
 import type {
   SensitiveCategory,

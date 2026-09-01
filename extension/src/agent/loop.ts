@@ -12,7 +12,7 @@
 //
 // Fail-closed stops: blocked page, restricted surface, unenforceable findings, firewall
 // deny, planner/execution failure. Each stop is a structured status — never silent
-// (CLAUDE.md §16), never carrying a raw value (§5 Rule 4).
+// (CONTRIBUTING.md §16), never carrying a raw value (§5 Rule 4).
 
 import type {
   AgentAction,
@@ -27,6 +27,7 @@ import { enforcePrivacy } from '../sanitizer';
 import type { LocalVault } from '../vault';
 import type { PrivacyFirewall } from '../firewall';
 import type { AgentGateway } from './index';
+import { setNavigationAllowlist } from './session-policy';
 
 /** One executed step, recorded for the UI/audit. Alias-level only — never a resolved value. */
 export interface AgentStepRecord {
@@ -74,6 +75,12 @@ export interface AgentLoopOptions {
   gateway: AgentGateway;
   bridge: ActionBridge;
   firewall: PrivacyFirewall;
+  /**
+   * NAVIGATE allowlist (validated origins). DEFAULT: the scanned page's own origin —
+   * "navigation may stay on the site the user is on" — derived from the snapshot URL
+   * (origin only, never the full URL). Empty when no origin is known (fail closed).
+   */
+  navigationAllowlist?: string[];
   /** Observe the active tab (wraps the SCAN_PAGE relay). Injectable for tests. */
   scan: () => Promise<ScanPageResponse>;
   /** Privacy-event sink (telemetry lands in M7; the loop only emits structured events). */
@@ -101,6 +108,9 @@ export function toSanitizedNodes(structure: ScanPageResponse['structure']): Sani
     }
     if (field.label !== undefined && detectPII(field.label).length === 0) {
       node.label = field.label;
+    }
+    if (field.belowFold === true) {
+      node.belowFold = true;
     }
     if (field.name !== undefined && detectPII(field.name).length === 0) {
       node.name = field.name;
@@ -173,14 +183,36 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
     if (enforcement.restricted) return stop('restricted');
     if (!enforcement.enforced) return stop('not_enforced', 'FINDINGS_UNRESOLVED');
 
+    // Navigation allowlist: explicit option wins; otherwise the scanned page's own
+    // origin (same-site navigation only). Shared with the bridge's policy provider.
+    let allowlist = options.navigationAllowlist ?? [];
+    if (options.navigationAllowlist === undefined && observed.snapshot?.url) {
+      try {
+        allowlist = [new URL(observed.snapshot.url).origin];
+      } catch {
+        allowlist = [];
+      }
+    }
+    setNavigationAllowlist(allowlist);
+
+    let pageOrigin: string | undefined;
+    if (observed.snapshot?.url) {
+      try {
+        pageOrigin = new URL(observed.snapshot.url).origin;
+      } catch {
+        pageOrigin = undefined;
+      }
+    }
+
     // 3 — build the sanitized request.
     const request: RemoteAgentRequest = {
       taskObjective: options.task,
+      pageOrigin,
       sanitizedPageStructure: toSanitizedNodes(observed.structure),
       sanitizedVisibleText: enforcement.sanitizedText,
       aliases: enforcement.aliases,
       availableActions: [...ALLOWED_ACTION_KINDS],
-      policy: { privacyMode: 'strict', navigationAllowlist: [] },
+      policy: { privacyMode: 'strict', navigationAllowlist: allowlist },
     };
 
     // 4 — firewall: the only path to egress. A deny stops the loop, visibly.
@@ -228,14 +260,24 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
 
     if (!ok) return stop('error', outcome);
 
-    // No-progress guard: executing the identical action twice in a row means the page
-    // state is not changing under us (e.g. a submit button that stays enabled). Stop
-    // honestly instead of looping to the budget.
+    // Navigation settle: the tab is loading a new document; give it a moment before
+    // the next observation (the scan relay's own injection retries handle the rest).
+    if (action.action === 'NAVIGATE') {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    }
+
+    // No-progress guard: executing the identical NON-SCROLL action twice in a row means
+    // the page state is not changing under us (e.g. a submit button that stays
+    // enabled). Repeated scrolls are legitimate progress toward below-fold controls
+    // (the re-observation decides when to stop scrolling), so they are exempt — the
+    // step budget still bounds them.
     const previous = steps[steps.length - 2];
     if (
+      action.action !== 'SCROLL' &&
       previous !== undefined &&
       previous.ok &&
       previous.action !== null &&
+      previous.action.action !== 'SCROLL' &&
       JSON.stringify(previous.action) === JSON.stringify(action)
     ) {
       return stop('max_steps', 'NO_PROGRESS');

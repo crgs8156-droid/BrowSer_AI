@@ -6,7 +6,7 @@
 // no imports, no module-scope constants, no closure references. Type-only imports
 // are safe because TypeScript erases them.
 //
-// This runs in an UNTRUSTED page (CLAUDE.md §6). It only reads geometry and
+// This runs in an UNTRUSTED page (CONTRIBUTING.md §6). It only reads geometry and
 // text-availability flags; it never evaluates page-supplied strings and never
 // returns pixels.
 

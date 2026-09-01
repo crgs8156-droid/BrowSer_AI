@@ -1,11 +1,11 @@
 // M5 — PRIVACY / LEAKAGE TESTS for the sanitization + enforcement layer.
 //
-// Invariant under test (CLAUDE.md §5 Rule 1/2/4): a raw protected value handed to
+// Invariant under test (CONTRIBUTING.md §5 Rule 1/2/4): a raw protected value handed to
 // M5 CANNOT appear in the enforcement result, in a log line, or on the network.
 // The raw value is recoverable ONLY from the local, in-memory vault, and only via
 // its alias — never from the alias directory itself. The source is also scanned
 // (comments stripped) to prove it contains no logging, egress, or persistent
-// storage. Synthetic canaries only (CLAUDE.md §13/§15).
+// storage. Synthetic canaries only (CONTRIBUTING.md §13/§15).
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';

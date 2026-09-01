@@ -9,7 +9,7 @@
 //
 // SCOPE (honest): a masked image/visual region carries a category ONLY when a real OCR/
 // vision engine recognized one there. When no engine is registered (the default), regions
-// are surfaced as MASKED REGIONS + page section, never a fabricated category (CLAUDE.md §22).
+// are surfaced as MASKED REGIONS + page section, never a fabricated category (CONTRIBUTING.md §22).
 
 import type {
   EnforcementResult,

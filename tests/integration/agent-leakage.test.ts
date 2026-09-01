@@ -1,4 +1,4 @@
-// M6 — leakage/security tests for the agent egress path (CLAUDE.md §13/§14).
+// M6 — leakage/security tests for the agent egress path (CONTRIBUTING.md §13/§14).
 //
 // The agent loop and the deterministic planner are PURE with respect to network: the
 // only module allowed to fetch is `agent/remote.ts` (injectable transport). This suite

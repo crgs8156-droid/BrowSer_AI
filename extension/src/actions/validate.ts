@@ -1,4 +1,4 @@
-// M6 — structured action validation (blueprint §7, CLAUDE.md §7).
+// M6 — structured action validation (blueprint §7, CONTRIBUTING.md §7).
 //
 // Pipeline stage 1 (schema) and stage 2 (policy). Pure and synchronous: no DOM, no
 // network, no vault. A validator can only REJECT; execution and alias resolution
@@ -102,7 +102,7 @@ export function validateActionSchema(raw: unknown): ValidationResult {
  * Stage 2 — policy validation. Enforces the constrained action vocabulary:
  * NAVIGATE only to allowlisted https prefixes; bounded SCROLL; TYPE/SELECT values
  * must be a local alias or demonstrably free of detectable PII (a malicious or
- * hallucinating planner cannot type a raw protected value — CLAUDE.md §5 Rule 1).
+ * hallucinating planner cannot type a raw protected value — CONTRIBUTING.md §5 Rule 1).
  */
 export function validateActionPolicy(
   action: AgentAction,

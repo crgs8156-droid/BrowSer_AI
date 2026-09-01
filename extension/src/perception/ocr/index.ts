@@ -6,7 +6,7 @@
 // It returns nothing rather than something because a fabricated transcription is
 // worse than no transcription: downstream milestones treat OCR output as observed
 // page content, so invented text would become invented evidence for sensitivity
-// decisions and could mask a real leak (CLAUDE.md §22).
+// decisions and could mask a real leak (CONTRIBUTING.md §22).
 //
 // Earlier scaffolding returned a hard-coded `'Sample OCR Text'` string for any
 // input. That was removed in M3 — see docs/m3-visual-perception.md for the

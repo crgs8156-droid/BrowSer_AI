@@ -187,11 +187,12 @@ describe('agent loop (deterministic, in-extension)', () => {
     expect(varying.status).toBe('max_steps');
     expect(varying.steps).toHaveLength(4);
 
+    // Repeated TYPE (not SCROLL — scrolling is exempt, it is progress-seeking).
     const stuck = await runAgentLoop({
       task: 'fill the form',
       sessionId: 's',
       vault: createLocalVault(),
-      gateway: { plan: async () => [{ action: 'SCROLL', amount: 100 }] },
+      gateway: { plan: async () => [{ action: 'TYPE', target: '#email', value: 'hello' }]},
       bridge: createActionBridge({ vault: createLocalVault(), sendToPage: async () => ({ ok: true, code: 'OK' }) }),
       firewall: createPrivacyFirewall(),
       scan: scrolling.scan,
@@ -199,6 +200,135 @@ describe('agent loop (deterministic, in-extension)', () => {
     });
     expect(stuck.status).toBe('max_steps');
     expect(stuck.reason).toBe('NO_PROGRESS');
+  });
+
+  it('scrolls to below-fold fields, fills them, and completes without tripping the guard', async () => {
+    const state = { email: '', submitted: false };
+    const page: {
+      scrollY: number;
+      scan: () => Promise<ScanPageResponse>;
+      executor: (action: import('../../extension/src/types/contracts').AgentAction) => Promise<{ ok: boolean; code?: string }>;
+    } = {
+      scrollY: 0,
+      scan: async () => {
+        const emailTop = 1600 - page.scrollY;
+        return {
+          pageText: `Contact: BENCH_EMAIL_001@example.test\n${state.email}`,
+          snapshot: { url: 'https://site.test/form', viewport: { width: 1280, height: 800 }, domTextLength: 0, candidates: [] },
+          structure: [
+            {
+              tag: 'input',
+              selector: '#email',
+              inputType: 'email',
+              label: 'Email',
+              value: state.email || undefined,
+              disabled: false,
+              belowFold: emailTop >= 800,
+            },
+            {
+              tag: 'button',
+              selector: '#submit',
+              label: 'Submit',
+              disabled: state.submitted,
+              belowFold: 1750 - page.scrollY >= 800,
+            },
+          ],
+        };
+      },
+      executor: async (action) => {
+        if (action.action === 'SCROLL') {
+          page.scrollY += action.amount;
+          return { ok: true, code: 'OK' };
+        }
+        if (action.action === 'TYPE' && action.target === '#email') {
+          state.email = action.value;
+          return { ok: true, code: 'OK' };
+        }
+        if (action.action === 'CLICK' && action.target === '#submit') {
+          state.submitted = true;
+          return { ok: true, code: 'OK' };
+        }
+        return { ok: false, code: 'NOT_FOUND' };
+      },
+    };
+
+    const vault = createLocalVault();
+    const result = await runAgentLoop({
+      task: 'fill the form with my details and submit',
+      sessionId: 'scroll-session',
+      vault,
+      gateway: createDeterministicPlanner(),
+      bridge: createActionBridge({ vault, sendToPage: page.executor }),
+      firewall: createPrivacyFirewall(),
+      scan: page.scan,
+    });
+
+    expect(result.status).toBe('completed');
+    expect(state.email).toBe('BENCH_EMAIL_001@example.test');
+    expect(state.submitted).toBe(true);
+    // The scroll steps really happened through the validated bridge.
+    expect(result.steps.filter((step) => step.action?.action === 'SCROLL').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('navigates to an allowlisted origin named in the task, then fills the form', async () => {
+    let url = 'https://portal.test/start';
+    const state = { email: '' };
+    const executed: string[] = [];
+    const scan = async (): Promise<ScanPageResponse> => {
+      const onTarget = url.startsWith('https://privagent.test');
+      return {
+        pageText: [
+          onTarget ? `Checkout — Contact BENCH_EMAIL_001@example.test` : 'Landing page: open privagent.test to continue',
+          state.email,
+        ]
+          .filter((part) => part.length > 0)
+          .join('\n'),
+        snapshot: { url, viewport: { width: 1280, height: 800 }, domTextLength: 0, candidates: [] },
+        structure: onTarget
+          ? [
+              {
+                tag: 'input',
+                selector: '#email',
+                inputType: 'email',
+                label: 'Email',
+                value: state.email || undefined,
+                disabled: false,
+              },
+            ]
+          : [],
+      };
+    };
+    const vault = createLocalVault();
+    const result = await runAgentLoop({
+      task: 'open privagent.test and fill the form with my details',
+      sessionId: 'nav-session',
+      vault,
+      gateway: createDeterministicPlanner(),
+      bridge: createActionBridge({
+        vault,
+        policy: { navigationAllowlist: ['https://privagent.test'], maxScroll: 10_000 },
+        sendToPage: async (action) => {
+          executed.push(action.action);
+          if (action.action === 'NAVIGATE') {
+            url = action.url;
+            return { ok: true, code: 'OK' };
+          }
+          if (action.action === 'TYPE' && action.target === '#email') {
+            state.email = action.value;
+            return { ok: true, code: 'OK' };
+          }
+          return { ok: false, code: 'NOT_FOUND' };
+        },
+      }),
+      firewall: createPrivacyFirewall(),
+      scan,
+      navigationAllowlist: ['https://privagent.test'],
+    });
+
+    expect(result.status).toBe('completed');
+    expect(executed[0]).toBe('NAVIGATE');
+    expect(executed).toContain('TYPE');
+    expect(result.steps[0]?.action).toEqual({ action: 'NAVIGATE', url: 'https://privagent.test' });
   });
 
   it('rejects an empty task', async () => {

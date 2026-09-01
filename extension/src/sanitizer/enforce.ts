@@ -12,7 +12,7 @@
 //
 // No finding is ever dropped. `enforced` is true only when every finding was
 // neutralised AND the page is not uncertain; the caller/firewall must still
-// refuse to send when `blocked`, `restricted`, or `!enforced` (CLAUDE.md §5).
+// refuse to send when `blocked`, `restricted`, or `!enforced` (CONTRIBUTING.md §5).
 //
 // PRIVACY: the returned `EnforcementResult` carries aliases (type only),
 // geometry, and dispositions — never a raw value, pixels, or a screenshot. Raw
@@ -134,7 +134,7 @@ export async function enforcePrivacy(input: EnforceInput): Promise<EnforcementRe
   // Fail closed: emit usable cleartext ONLY when the page is fully safe to
   // proceed. If any finding is unresolved, the page is blocked, or the surface is
   // restricted, we cannot guarantee the text is clean — so we withhold it rather
-  // than risk handing an unidentified raw value downstream (CLAUDE.md §5 Rule 7).
+  // than risk handing an unidentified raw value downstream (CONTRIBUTING.md §5 Rule 7).
   const safe = enforced && !blocked && !restricted;
 
   return {

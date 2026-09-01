@@ -207,7 +207,7 @@ shape — affect `overall` only and produce no entry in `findings`.
 
 ## 4. Fail-safe behaviour
 
-Absence of evidence is never treated as evidence of safety (CLAUDE.md §5 Rule 7).
+Absence of evidence is never treated as evidence of safety (CONTRIBUTING.md §5 Rule 7).
 
 | Situation | Decision |
 |-----------|----------|
@@ -278,7 +278,7 @@ therefore proven to be genuinely guarded, not merely assumed safe.
 - **M7 (privacy firewall):** treat `action === 'BLOCK'` (and, fail-closed, any
   decision the firewall cannot reconcile) as an outbound block. `WARN` surfaces to
   the user; `ALLOW` still passes through the firewall — the firewall, not M4, is
-  the final boundary (CLAUDE.md §5 Rule 6).
+  the final boundary (CONTRIBUTING.md §5 Rule 6).
 - **Telemetry (M7):** `PolicyDecision` is already log-safe (categories/counts
   only), but telemetry must still avoid attaching any raw context around it.
 

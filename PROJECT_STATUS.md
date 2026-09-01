@@ -1,7 +1,10 @@
 # PrivAgent — PROJECT_STATUS
 
 _Last updated: 2026-08-30_
-_Author: Real local OCR (Tesseract.js) integrated — visual content pass live_
+_Author: Real local OCR (Tesseract.js) integrated — visual content pass live_.
+_Engineering rules: [CONTRIBUTING.md](CONTRIBUTING.md) (formerly `CLAUDE.md`; section
+numbers unchanged)._
+
 
 ---
 
@@ -33,7 +36,7 @@ pending manual Chrome verification.**
 - **Bundling** — `vite.config.ts` `publicDir: 'extension/public'` ships the OCR
   runtime into `dist/`.
 
-### Honest engine behaviour (CLAUDE.md §22)
+### Honest engine behaviour (CONTRIBUTING.md §22)
 - Load failure throws a tagged `OCR_ENGINE_UNAVAILABLE`; the analyzer reports
   `not_available` (no engine) or `failed` (engine threw) — it never fabricates text.
 - The wasm engine cannot run under vitest/node, so unit tests verify only the
@@ -502,7 +505,7 @@ ever silently dropped. Full design in `docs/m5-sanitization.md`.
 - **Aliases only cross the boundary; values stay in the vault.** The alias
   directory is `{ alias, category }[]` (type only). The alias↔value mapping lives
   solely in the in-memory `LocalVault`, session-scoped and wiped by `clearSession`
-  (CLAUDE.md §5 Rule 3/4).
+  (CONTRIBUTING.md §5 Rule 3/4).
 - **Visual enforcement is region masking, not outbound image scrubbing.**
   `RemoteAgentRequest` has no image field, so raw pixels never cross the boundary
   by construction (M3 invariant). M5 emits geometry-only mask directives and
@@ -519,7 +522,7 @@ ever silently dropped. Full design in `docs/m5-sanitization.md`.
   neutralised and the page is not uncertain. Cleartext `sanitizedText` is emitted
   **only** when the page is fully safe (`enforced && !blocked && !restricted`);
   otherwise it is withheld (empty), so an unidentified raw value can never ride
-  out on the sanitized text (CLAUDE.md §5 Rule 7).
+  out on the sanitized text (CONTRIBUTING.md §5 Rule 7).
 
 ### Files added
 
@@ -600,7 +603,7 @@ missing receiver it injects the built content-script file(s) — read at runtime
 `chrome.runtime.getManifest().content_scripts[0].js`, using the existing `scripting` +
 http/https `host_permissions` (no new grant) — and retries. `PAGE_UNREACHABLE` is surfaced
 **only** when injection itself is refused, i.e. the browser genuinely forbids access (fail
-closed, CLAUDE.md §5 Rule 7). The `SCROLL_VIEWPORT` relay uses the same path. Also removed the
+closed, CONTRIBUTING.md §5 Rule 7). The `SCROLL_VIEWPORT` relay uses the same path. Also removed the
 stray `action.default_popup` from the manifest so the toolbar icon opens the **side panel**
 (it previously suppressed `openPanelOnActionClick`).
 
@@ -745,7 +748,7 @@ WHAT sensitive value a captured region contains — distinct from the coarse str
   Findings carry `category`, `confidence`, raster-space `bbox`, optional `text`.
 - **Honest default** (`perception/visual/content-analyzer.ts`): with no engine registered the
   registry returns a constant analyzer that ALWAYS reports `not_available` and zero findings —
-  nothing is constructed, nothing is fabricated (CLAUDE.md §22). `registerVisualContentAnalyzer()`
+  nothing is constructed, nothing is fabricated (CONTRIBUTING.md §22). `registerVisualContentAnalyzer()`
   is the single, lazy integration point for a real local ONNX/OCR engine later.
 - **Coordinate mapping** (`perception/visual/coords.ts`, pure): `mapRasterBboxToRegion` inverts
   the rasterizer's crop+downscale so an engine's raster-pixel box maps back to the region's CSS-px
@@ -801,13 +804,13 @@ WHAT sensitive value a captured region contains — distinct from the coarse str
 ## 9f. Milestone 6 — agent loop, action bridge, firewall seam, backend planner
 
 _Added 2026-09-01. All numbers below were actually measured in this workspace; nothing is
-claimed that was not run (CLAUDE.md §22)._
+claimed that was not run (CONTRIBUTING.md §22)._
 
 ### Scope
 
 The M6 milestone from `docs/architecture.md`: the provider-agnostic **agent**, the
 **structured action validator + local action bridge**, and — because a working loop
-requires egress — the **privacy firewall** that CLAUDE.md §5 Rule 6 makes the single
+requires egress — the **privacy firewall** that CONTRIBUTING.md §5 Rule 6 makes the single
 outbound boundary. Plus the backend planner endpoint (`POST /v1/plan`) and a CI
 workflow (the repository previously had none).
 
@@ -824,7 +827,7 @@ workflow (the repository previously had none).
   true` in the sanitized structure, so the planner advances without any memory. This
   also makes it prompt-injection-resistant by construction: page labels are matched
   only against a fixed structural keyword table, never interpreted as instructions
-  (CLAUDE.md §6) — asserted by a dedicated unit test.
+  (CONTRIBUTING.md §6) — asserted by a dedicated unit test.
 - **`SanitizedNode`s carry no values.** The remote planner sees field semantics
   (tag/type/label/name), a `filled` boolean and a CSS selector — never a value. A
   label/name crosses only when the M2 detector finds nothing in it (fail closed,
@@ -852,7 +855,7 @@ workflow (the repository previously had none).
 - **Backend mirrors the extension planner.** `backend/fastapi/app/agent.py` implements
   the same deterministic heuristics over the sanitized contract (pydantic-validated:
   alias grammar, action-kind allowlist, size caps → 422), with `AGENT_PROVIDER` as the
-  S4 seam — selecting `remote` raises 501 rather than pretending (CLAUDE.md §22).
+  S4 seam — selecting `remote` raises 501 rather than pretending (CONTRIBUTING.md §22).
 
 ### Files added
 
@@ -886,7 +889,7 @@ workflow (the repository previously had none).
 | Backend | `pytest -q` (backend/fastapi) | ✅ **9 passed / 9** |
 | CI | `.github/workflows/ci.yml` | added (node gates, backend pytest, e2e job) |
 
-### Privacy verification (canary-based, CLAUDE.md §13)
+### Privacy verification (canary-based, CONTRIBUTING.md §13)
 
 `tests/integration/agent-leakage.test.ts` plants synthetic canaries
 (`CANARY_EMAIL_001@example.test`, `555-123-4567`) in the page text of a full
@@ -920,7 +923,7 @@ A source scan proves the firewall/validator/planner/loop modules contain no
 ## 9g. Milestone 7 — telemetry, PrivAgent-Bench, leakage sentinel measurement
 
 _Added 2026-09-01. All numbers below were actually measured in this workspace; nothing is
-claimed that was not run (CLAUDE.md §22)._
+claimed that was not run (CONTRIBUTING.md §22)._
 
 ### Scope
 
@@ -1107,7 +1110,7 @@ backend 10/10 ✅ — reports: `benchmark/reports/visual-accuracy.{json,md}`
 
 ## 10. Corrections to earlier milestone claims
 
-Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
+Recorded for honesty (CONTRIBUTING.md §22) — these were found while starting M3, not introduced by
 it.
 
 1. **M1's `npm run e2e — ✅ all e2e tests passed` was not reproducible.**
@@ -1133,7 +1136,7 @@ verified (see §9f). The two integration points left open by §9c are now closed
 every outbound payload passes the implemented fail-closed firewall
 (`extension/src/firewall/inspect.ts`).
 
-The next milestone is **not started** and, per CLAUDE.md §24, will not begin
+The next milestone is **not started** and, per CONTRIBUTING.md §24, will not begin
 until explicitly requested. Natural follow-ups, in rough order:
 
 1. **S4 — remote provider adapter:** Ollama (`qwen2.5vl:7b`) behind

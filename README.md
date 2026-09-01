@@ -92,7 +92,9 @@ models/           on-device model artifacts (git-ignored)
 
 ## Security
 
-Design invariants live in [CLAUDE.md](CLAUDE.md) and [docs/threat-model.md](docs/threat-model.md).
+Design invariants live in [CONTRIBUTING.md](CONTRIBUTING.md) (engineering rules) and
+[docs/threat-model.md](docs/threat-model.md); agent/automation entry point:
+[AGENTS.md](AGENTS.md).
 The short version: protected values and alias↔value mappings stay local; the firewall
 is the only egress and fails closed; webpage content is untrusted; the agent emits only
 structured actions (`CLICK/TYPE/SELECT/SCROLL/NAVIGATE`) — never arbitrary code; logs,

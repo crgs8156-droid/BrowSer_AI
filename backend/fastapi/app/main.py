@@ -2,7 +2,7 @@
 
 M0 scaffolding only: exposes a health endpoint so the toolchain can be validated.
 This service must NEVER receive raw protected values or alias->value mappings
-(CLAUDE.md §5). Feature endpoints (leakage sink, benchmark) arrive in later milestones.
+(CONTRIBUTING.md §5). Feature endpoints (leakage sink, benchmark) arrive in later milestones.
 """
 
 from fastapi import FastAPI, HTTPException
@@ -21,7 +21,7 @@ def health() -> dict[str, str]:
 def plan(request: PlanRequest) -> dict:
     """Plan the next structured action(s) from an ALREADY-SANITIZED request.
 
-    PRIVACY (CLAUDE.md §5 Rule 2): this endpoint must never receive raw protected
+    PRIVACY (CONTRIBUTING.md §5 Rule 2): this endpoint must never receive raw protected
     values. The planner works purely on field semantics, filled flags, and alias
     bindings; the extension's firewall is the gate that guarantees the payload.
     """

@@ -1,18 +1,19 @@
 """M6 — remote deterministic planner provider (blueprint §8/§13).
 
-The backend is a REMOTE boundary (CLAUDE.md §5 Rule 2): it must never receive raw
+The backend is a REMOTE boundary (CONTRIBUTING.md §5 Rule 2): it must never receive raw
 protected values. This planner therefore works exclusively on the sanitized request —
 field semantics, filled flags, and alias bindings — and mirrors the extension's
 deterministic planner so the demo is reproducible without any model.
 
 The provider seam (`AGENT_PROVIDER`) exists for the S4 Ollama/VLM adapter; selecting a
-provider that is not implemented fails loudly instead of pretending (CLAUDE.md §22).
+provider that is not implemented fails loudly instead of pretending (CONTRIBUTING.md §22).
 """
 
 from __future__ import annotations
 
 import os
 import re
+from urllib.parse import urlparse
 from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, Field
@@ -43,6 +44,7 @@ class SanitizedNode(BaseModel):
     name: str | None = None
     filled: bool
     disabled: bool
+    belowFold: bool | None = None
 
 
 class AliasBinding(BaseModel):
@@ -59,6 +61,7 @@ class PlanRequest(BaseModel):
     """Mirrors the extension's `RemoteAgentRequest` (sanitized data only)."""
 
     taskObjective: str = Field(min_length=1, max_length=2000)
+    pageOrigin: str | None = None
     sanitizedPageStructure: list[SanitizedNode] = Field(max_length=500)
     sanitizedVisibleText: str = Field(max_length=100_000)
     aliases: list[AliasBinding] = Field(max_length=100)
@@ -150,7 +153,31 @@ class DeterministicPlanner:
                     and node.label is not None
                     and SUBMIT_LABELS.match(node.label)
                 ):
+                    if node.belowFold:
+                        return PlanResponse(actions=[ScrollAction(action="SCROLL", amount=720)])
                     return PlanResponse(actions=[ClickAction(action="CLICK", target=node.selector)])
+
+        match = re.search(
+            r"\b(?:open|go to|navigate to|visit)\s+([a-z0-9-]+(?:\.[a-z0-9-]+)+)",
+            request.taskObjective,
+            re.I,
+        )
+        if match and request.pageOrigin is not None:
+            host = match.group(1).lower()
+            for entry in request.policy.navigationAllowlist:
+                try:
+                    hostname = urlparse(entry).hostname or ""
+                except ValueError:
+                    continue
+                if hostname == host or hostname.endswith(f".{host}"):
+                    try:
+                        if urlparse(request.pageOrigin).hostname != hostname:
+                            return PlanResponse(
+                                actions=[NavigateAction(action="NAVIGATE", url=entry)]
+                            )
+                    except ValueError:
+                        continue
+                    break
 
         return PlanResponse(actions=[])
 

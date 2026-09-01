@@ -1,6 +1,6 @@
 // Integration leakage test: real M2 detection → M5 enforcement → display summary.
 //
-// Invariant (CLAUDE.md §5/§13): a raw protected value fed into the pipeline must NEVER
+// Invariant (CONTRIBUTING.md §5/§13): a raw protected value fed into the pipeline must NEVER
 // appear in the display summary the side panel renders — not in a field, not in a
 // displayId, not anywhere in its JSON serialisation. Synthetic canaries only (§15).
 

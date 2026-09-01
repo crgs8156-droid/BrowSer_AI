@@ -104,6 +104,70 @@ describe('deterministic planner', () => {
     expect(actions).toEqual([]);
   });
 
+  it('scrolls first for a below-fold field, then types once it is in view', () => {
+    const belowFold = request({
+      taskObjective: 'fill the form and submit',
+      sanitizedPageStructure: [
+        { ...field({ selector: '#email', label: 'Email' }), belowFold: true },
+      ],
+      aliases: [{ alias: 'USER_EMAIL_1', category: 'EMAIL' }],
+    });
+    expect(planDeterministic(belowFold)).toEqual([{ action: 'SCROLL', amount: 720 }]);
+
+    const inView = request({
+      taskObjective: 'fill the form and submit',
+      sanitizedPageStructure: [field({ selector: '#email', label: 'Email' })],
+      aliases: [{ alias: 'USER_EMAIL_1', category: 'EMAIL' }],
+    });
+    expect(planDeterministic(inView)).toEqual([
+      { action: 'TYPE', target: '#email', value: 'USER_EMAIL_1' },
+    ]);
+  });
+
+  it('scrolls for a below-fold submit button too', () => {
+    const actions = planDeterministic(
+      request({
+        taskObjective: 'fill the form and submit',
+        sanitizedPageStructure: [
+          field({ selector: '#email', filled: true, label: 'Email' }),
+          { tag: 'button', selector: '#go', filled: false, disabled: false, label: 'Submit', belowFold: true },
+        ],
+        aliases: [{ alias: 'USER_EMAIL_1', category: 'EMAIL' }],
+      }),
+    );
+    expect(actions).toEqual([{ action: 'SCROLL', amount: 720 }]);
+  });
+
+  it('navigates only to allowlisted origins named in the task, never when already there', () => {
+    const away = request({
+      taskObjective: 'open privagent.test and continue',
+      pageOrigin: 'https://portal.test',
+      policy: { privacyMode: 'strict', navigationAllowlist: ['https://privagent.test'] },
+      sanitizedPageStructure: [],
+    });
+    expect(planDeterministic(away)).toEqual([
+      { action: 'NAVIGATE', url: 'https://privagent.test' },
+    ]);
+
+    // Already on the target origin: fall through to fills/submit, never navigate.
+    const home = request({
+      taskObjective: 'open privagent.test and continue',
+      pageOrigin: 'https://privagent.test',
+      policy: { privacyMode: 'strict', navigationAllowlist: ['https://privagent.test'] },
+      sanitizedPageStructure: [],
+    });
+    expect(planDeterministic(home)).toEqual([]);
+
+    // A domain NOT on the allowlist is never navigated to (planner cannot invent URLs).
+    const unlisted = request({
+      taskObjective: 'open evil.test and continue',
+      pageOrigin: 'https://portal.test',
+      policy: { privacyMode: 'strict', navigationAllowlist: ['https://privagent.test'] },
+      sanitizedPageStructure: [],
+    });
+    expect(planDeterministic(unlisted)).toEqual([]);
+  });
+
   it('is deterministic across repeated calls', () => {
     const req = request({
       taskObjective: 'fill the form and submit',

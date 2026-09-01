@@ -74,6 +74,15 @@ describe('privacy firewall', () => {
     expect((await firewall.inspect(badActions)).reason).toBe('FIREWALL_BAD_ACTIONS');
   });
 
+  it('accepts an optional origin-only pageOrigin and rejects full URLs', async () => {
+    const firewall = createPrivacyFirewall();
+    const withOrigin = cleanRequest({ pageOrigin: 'https://privagent.test' });
+    expect((await firewall.inspect(withOrigin)).allowed).toBe(true);
+
+    const fullPath = cleanRequest({ pageOrigin: 'https://privagent.test/form?x=1' });
+    expect((await firewall.inspect(fullPath)).reason).toBe('FIREWALL_MALFORMED');
+  });
+
   it('accepts alias strings without false-positiving the PII scan', async () => {
     const verdict = await createPrivacyFirewall().inspect(
       cleanRequest({ sanitizedVisibleText: 'Email USER_EMAIL_1 · Phone USER_PHONE_1' }),

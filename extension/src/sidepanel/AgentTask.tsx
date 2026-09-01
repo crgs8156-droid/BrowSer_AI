@@ -10,6 +10,8 @@ import { runAgentLoop, type AgentRunResult, type AgentStepRecord } from '../agen
 import { createActionBridge } from '../actions';
 import { createPrivacyFirewall } from '../firewall';
 import { createDeterministicPlanner } from '../agent/planner';
+import { getNavigationAllowlist } from '../agent/session-policy';
+import { DEFAULT_ACTION_POLICY } from '../actions/validate';
 import { createLocalVault } from '../vault';
 import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
@@ -36,6 +38,15 @@ export function AgentTask() {
     setState('running');
     setResult(null);
     try {
+      // NAVIGATE allowlist: user-configured via storage (settings surface later);
+      // default EMPTY — the loop then falls back to same-origin-only navigation.
+      const stored = (await chrome.storage.sync.get('navigationAllowlist')) as {
+        navigationAllowlist?: unknown;
+      };
+      const allowlist = Array.isArray(stored.navigationAllowlist)
+        ? (stored.navigationAllowlist as string[])
+        : [];
+
       // ONE vault shared by enforcement (writes aliases) and the bridge (resolves them) —
       // the alias→value mapping lives only here, in memory, for this run.
       const vault = createLocalVault();
@@ -44,8 +55,10 @@ export function AgentTask() {
         sessionId: `agent-${Date.now()}`,
         vault,
         gateway: createDeterministicPlanner(),
+        navigationAllowlist: allowlist,
         bridge: createActionBridge({
           vault,
+          policy: () => ({ ...DEFAULT_ACTION_POLICY, navigationAllowlist: [...getNavigationAllowlist()] }),
           onAliasResolved: (alias) => recordEvent({ type: 'ALIAS_RESOLVED', alias }),
         }),
         firewall: createPrivacyFirewall(),

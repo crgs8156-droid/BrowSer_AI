@@ -9,7 +9,7 @@
 //   4. maps each detected value back to the union of the word boxes it covers,
 //   5. emits categorized `RawVisualContentFinding`s in RASTER pixel coordinates.
 //
-// HONESTY (CLAUDE.md §22):
+// HONESTY (CONTRIBUTING.md §22):
 //   - No OCR recognizer registered  → status `not_available`, zero findings.
 //   - Recognizer errors / cannot load → status `failed`, zero findings.
 //   - Recognizer runs but reads nothing → status `ok`, zero findings.
@@ -17,7 +17,7 @@
 //
 // PRIVACY: recognized text is raw protected content. It is used locally to classify
 // and is attached to the finding for local aliasing only; it is never logged and
-// never crosses the remote boundary without sanitization (CLAUDE.md §5).
+// never crosses the remote boundary without sanitization (CONTRIBUTING.md §5).
 
 import { detectPII } from '../pii';
 import { toSensitiveCategory } from '../../sanitizer/alias';
