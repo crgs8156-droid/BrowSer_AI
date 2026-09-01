@@ -12,6 +12,7 @@ import { createPrivacyFirewall } from '../firewall';
 import { createDeterministicPlanner } from '../agent/planner';
 import { createLocalVault } from '../vault';
 import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
+import { recordEvent, sessionTelemetry } from './telemetry-session';
 
 type RunState = 'idle' | 'running' | 'done';
 
@@ -43,10 +44,24 @@ export function AgentTask() {
         sessionId: `agent-${Date.now()}`,
         vault,
         gateway: createDeterministicPlanner(),
-        bridge: createActionBridge({ vault }),
+        bridge: createActionBridge({
+          vault,
+          onAliasResolved: (alias) => recordEvent({ type: 'ALIAS_RESOLVED', alias }),
+        }),
         firewall: createPrivacyFirewall(),
         scan: () => chrome.runtime.sendMessage({ type: SCAN_PAGE }) as Promise<ScanPageResponse>,
       });
+      const { stageMs } = runResult;
+      for (const [name, ms] of [
+        ['agent.scan', stageMs.scanMs],
+        ['agent.enforce', stageMs.enforceMs],
+        ['agent.plan', stageMs.planMs],
+        ['agent.execute', stageMs.executeMs],
+        ['agent.total', stageMs.totalMs],
+      ] as const) {
+        sessionTelemetry.timing(name, ms);
+      }
+      recordEvent({ type: 'TASK_RESULT' });
       setResult(runResult);
       setState('done');
     } catch {

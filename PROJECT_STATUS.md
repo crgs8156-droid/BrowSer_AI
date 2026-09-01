@@ -1012,6 +1012,58 @@ specification.
 
 ---
 
+## 9h. Telemetry dashboard (rubric #4 evidence, UI)
+
+_Added 2026-09-01, same session as §9g._
+
+### Scope
+
+The side panel now SURFACES the M7 telemetry: a `Telemetry` dashboard section showing
+privacy-event counts (DETECTED/SANITIZED/BLOCKED/ALIAS_RESOLVED/TASK_RESULT) and
+per-stage timing percentiles (p50/p95/max) — the visible, live evidence for the
+client-side resource-utilization metric.
+
+### Design decisions
+
+- **Session telemetry singleton** (`sidepanel/telemetry-session.ts`): one `Telemetry`
+  instance shared by the scan pipeline and the agent task, wrapped with a minimal
+  pub-sub; React reads it through `useSyncExternalStore`. The value-free guarantee
+  stays in the recorder — the wrapper only fans out notifications.
+- **Pipeline instrumentation**: `App.runScan` records `scan.detect`/`scan.visual`/
+  `scan.enforce`/`scan.total` timings and DETECTED (per category, normalized via
+  `toSensitiveCategory`) / SANITIZED / BLOCKED events; the agent task records
+  `agent.*` stage timings (from `AgentRunResult.stageMs`), ALIAS_RESOLVED (alias only)
+  and TASK_RESULT events.
+- The dashboard can only ever show counts and milliseconds — the recorder's
+  allowlist-copy makes a raw-value leak into the UI structurally impossible, and the
+  e2e asserts the planted raw values never appear in the dashboard text.
+
+### Files
+
+- Added: `extension/src/sidepanel/telemetry-session.ts`, `extension/src/sidepanel/TelemetryPanel.tsx`,
+  `tests/unit/telemetry-session.test.ts`, `tests/e2e/telemetry-panel.spec.ts`
+- Modified: `extension/src/sidepanel/App.tsx` (instrumentation + mount),
+  `extension/src/sidepanel/AgentTask.tsx` (events + timings)
+
+### Validation results — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck / lint | `npm run typecheck` / `npm run lint` | ✅ pass |
+| Unit + integration | `npm test` | ✅ **318 passed / 318** (+3) |
+| Build | `npm run build` | ✅ pass |
+| E2E | `npm run e2e` | ✅ **18 passed / 18** (+1: dashboard fills from scan + agent run, value-free, reset works) |
+| Backend | `pytest -q` | ✅ 10 passed / 10 |
+
+### Known limitations
+
+- Telemetry is session-scoped in memory (resets on panel reload) — by design (R15);
+  persistent audit export remains future work.
+- Timings cover the local pipeline; full network-byte accounting per outbound request
+  is available in the bench, not yet surfaced live in the panel.
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
