@@ -1108,6 +1108,61 @@ backend 10/10 ✅ — reports: `benchmark/reports/visual-accuracy.{json,md}`
 
 ---
 
+## 9j. Below-fold scrolling, allowlisted navigation, repo organization, CI fix
+
+_Added 2026-09-01/02, same session as §9h/§9i._
+
+### Scope
+
+Three planner/loop capability gaps closed, one CI defect fixed, and the repository
+reorganized for handoff.
+
+### What landed
+
+- **Below-fold scrolling**: `SanitizedNode.belowFold` (viewport-relative, recomputed on
+  every observation) → the deterministic planner emits one bounded `SCROLL(720)` before
+  interacting with below-fold controls; the re-observation decides when to stop
+  scrolling. Repeated scrolls are exempt from the no-progress guard (scrolling IS
+  progress-seeking); the step budget still bounds them. The executor also
+  `scrollIntoView`s before TYPE/CLICK/SELECT. E2E: a 1200px-tall page is filled and
+  submitted end-to-end (`below-fold.spec.ts`).
+- **Allowlisted NAVIGATE**: `RemoteAgentRequest.pageOrigin` (origin-only, value-free,
+  firewall-validated as such) + a NAVIGATE rule that emits ONLY origins taken from the
+  local policy allowlist and named in the task — never an invented URL, never when
+  already on the target. The loop derives a same-origin default allowlist (fail-closed
+  empty) and shares it with the bridge's per-execution policy provider; the panel reads
+  a user-configured allowlist from `chrome.storage.sync` (default empty). E2E:
+  portal.test → privagent.test navigation + fill + submit (`navigation.spec.ts`).
+- **CI fix**: the `node` job ran `npm test` BEFORE `npm run build`; the
+  built-extension integration suite validates the BUILT `dist/` manifest and failed on
+  every clean checkout since M6 (5 red runs). Build now precedes tests; the run on
+  this commit is the regression proof.
+- **Repo organization**: `CLAUDE.md` → `CONTRIBUTING.md` (tool-neutral engineering
+  rules; section numbers unchanged — 51 files of references swept); new `AGENTS.md`
+  agent entry point; blueprint PDF moved to `docs/`; README updated.
+- **Firefox spike (time-boxed)**: `scripts/build-firefox.mjs` post-processes `dist/`
+  into `dist-firefox/` — event-page background (the CRXJS loader's import target is
+  inlined; the script refuses module syntax), `sidebar_action` instead of the
+  `sidePanel` permission, `browser_specific_settings.gecko.id`. `npm run build:firefox`.
+
+### Validation — actually executed
+
+typecheck ✅ lint ✅ vitest **324/324** (+6) ✅ bench 3/3 ✅ build ✅ e2e **22/22** (+2:
+below-fold, navigation) ✅ backend 10/10 ✅ · `npm run build:firefox` produces a valid
+Firefox MV3 structure ✅
+
+### Known limitations
+
+- Firefox: NOT executed in a real browser (Playwright cannot load extensions in
+  Firefox); manual path = `web-ext run --source-dir dist-firefox`. The toolbar-click
+  panel-open is Chrome-only — Firefox users open the sidebar manually.
+- Same-origin default navigation: cross-origin agent flows require the user-configured
+  allowlist (storage key `navigationAllowlist`).
+- Below-fold interaction assumes viewport-height scrolls; extremely tall/lazy pages may
+  consume the step budget (bounded, honest).
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CONTRIBUTING.md §22) — these were found while starting M3, not introduced by

@@ -12,7 +12,7 @@
 //     visual context consists of categories + geometry, never recognized raw text)
 //   - textCount === 0 (proof the page was genuinely visual-only)
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from './fixtures';
 import { openTestPage } from './fixtures';
@@ -28,48 +28,37 @@ interface VisualStats {
   regionsProcessed: number;
 }
 
-function canvasPage(lines: string[]): string {
-  // ONE canvas per value: single-line regions OCR far more reliably than multi-line
-  // blocks, and each region is cropped + analyzed independently by the pipeline.
-  const canvases = lines
-    .map(
-      (line, index) => `
-  <canvas class="bench-canvas" width="720" height="110" style="border:1px solid #ddd; margin:8px 0"></canvas>
-  <script>
-    (() => {
-      const ctx = document.querySelectorAll('.bench-canvas')[${index}].getContext('2d');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, 720, 110);
-      ctx.fillStyle = '#111111';
-      ctx.font = '36px monospace';
-      try { ctx.letterSpacing = '2px'; } catch { /* older engines: default spacing */ }
-      ctx.fillText(${JSON.stringify(line)}, 24, 70);
-    })();
-  </script>`,
-    )
+// Deterministic OCR input: committed PNGs (regenerate via
+// tests/e2e/generate-bench-assets.mjs) inlined as data URLs — runtime fillText depends
+// on installed fonts, which made Tesseract quality vary between machines, and routing
+// games lose to the fixture helper's own route. Pixels are identical everywhere.
+function imagePage(images: string[]): string {
+  const assetsDir = join(process.cwd(), 'tests', 'e2e', 'assets');
+  const tags = images
+    .map((name) => {
+      const base64 = readFileSync(join(assetsDir, `bench-${name}.png`)).toString('base64');
+      return `<img class="bench-img" src="data:image/png;base64,${base64}" width="860" height="110" style="display:block; margin:8px 0">`;
+    })
     .join('\n');
   return `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
   <p>Membership profile</p>
-  ${canvases}
+  ${tags}
 </body></html>`;
 }
 
 const PAGES: {
   id: string;
-  html: string;
+  images: string[];
   expected: string[];
 }[] = [
   {
     id: 'canvas-contact',
-    html: canvasPage([
-      'Contact: BENCH.EMAIL.011@example.test',
-      'Phone: 555-010-0011',
-    ]),
+    images: ['email', 'phone'],
     expected: ['EMAIL', 'PHONE'],
   },
   {
     id: 'canvas-card',
-    html: canvasPage(['Card: 4111 1111 1111 1111']),
+    images: ['card'],
     expected: ['PAYMENT'],
   },
 ];
@@ -91,7 +80,8 @@ for (const page of PAGES) {
     extContext,
     panel,
   }) => {
-    const tab = await openTestPage(extContext, page.html);
+    const tab = await openTestPage(extContext, imagePage(page.images));
+
 
     // 1 — the dedicated visual check: the wasm engine must actually RUN.
     await panel.getByRole('button', { name: 'Run Visual Check' }).dispatchEvent('click');
