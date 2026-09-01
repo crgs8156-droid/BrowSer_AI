@@ -29,3 +29,9 @@ def plan(request: PlanRequest) -> dict:
         return plan_actions(request)
     except NotImplementedError as error:
         raise HTTPException(status_code=501, detail=str(error)) from error
+
+
+@app.post("/v1/act")
+def act(request: PlanRequest) -> dict:
+    """Alias of `/v1/plan` (same contract, same planner, same guarantees)."""
+    return plan(request)

@@ -42,6 +42,11 @@ def test_plan_types_email_alias_into_empty_field():
     assert actions == [{"action": "TYPE", "target": "#email", "value": "USER_EMAIL_1"}]
 
 
+def test_act_alias_route_matches_plan_contract():
+    payload = make_request().model_dump()
+    assert client.post("/v1/act", json=payload).json() == client.post("/v1/plan", json=payload).json()
+
+
 def test_plan_advances_to_phone_then_submit():
     filled_email = make_request(
         sanitizedPageStructure=[
