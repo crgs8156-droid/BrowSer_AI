@@ -22,7 +22,7 @@ import type {
 import type { ScanPageResponse } from '../types/messages';
 import { ALLOWED_ACTION_KINDS } from '../actions/kinds';
 import type { ActionBridge } from '../actions';
-import { detectPII } from '../perception/pii';
+import { detectLabeledValues, detectPII } from '../perception/pii';
 import { enforcePrivacy } from '../sanitizer';
 import type { LocalVault } from '../vault';
 import type { PrivacyFirewall } from '../firewall';
@@ -53,6 +53,17 @@ export interface AgentRunResult {
   reason?: string;
   steps: AgentStepRecord[];
   actionsExecuted: number;
+  /**
+   * M7 — cumulative local-inference stage timings (ms) across all steps
+   * (blueprint §10 "local inference latency"). Durations only, never content.
+   */
+  stageMs: {
+    scanMs: number;
+    enforceMs: number;
+    planMs: number;
+    executeMs: number;
+    totalMs: number;
+  };
 }
 
 export interface AgentLoopOptions {
@@ -103,10 +114,18 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   const steps: AgentStepRecord[] = [];
   let actionsExecuted = 0;
+  const stage = { scanMs: 0, enforceMs: 0, planMs: 0, executeMs: 0 };
+  const startedAt = performance.now();
 
   const stop = (status: AgentRunStatus, reason?: string): AgentRunResult => {
     options.onEvent?.({ type: 'STOP', code: reason ?? status, index: steps.length });
-    return { status, reason, steps, actionsExecuted };
+    return {
+      status,
+      reason,
+      steps,
+      actionsExecuted,
+      stageMs: { ...stage, totalMs: performance.now() - startedAt },
+    };
   };
 
   if (typeof options.task !== 'string' || options.task.trim().length === 0) {
@@ -116,11 +135,13 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
   for (let index = 0; index < maxSteps; index++) {
     // 1 — observe (raw, internal only).
     let observed: ScanPageResponse;
+    const scanStartedAt = performance.now();
     try {
       observed = await options.scan();
     } catch {
       return stop('error', 'SCAN_FAILED');
     }
+    stage.scanMs += performance.now() - scanStartedAt;
     if (observed.restricted === true) return stop('restricted');
     if (
       observed.error !== undefined ||
@@ -131,13 +152,21 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
     }
 
     // 2 — enforce locally: alias every recoverable value into the LOCAL vault.
-    const entities = detectPII(observed.pageText);
+    // Multi-signal detection (blueprint §5): pattern evidence (detectPII) + label
+    // evidence (detectLabeledValues) — names/addresses/credential-like values that no
+    // pattern can catch are still protected, or the leakage sentinel will catch us.
+    const entities = [
+      ...detectPII(observed.pageText),
+      ...detectLabeledValues(observed.pageText),
+    ];
+    const enforceStartedAt = performance.now();
     const enforcement = await enforcePrivacy({
       signals: { entities, restricted: false },
       pageText: observed.pageText,
       sessionId: options.sessionId,
       vault: options.vault,
     });
+    stage.enforceMs += performance.now() - enforceStartedAt;
     // Fail closed: a page we cannot fully neutralize (or that carries a critical
     // credential) never produces an outbound request.
     if (enforcement.blocked) return stop('blocked', 'PAGE_BLOCKED');
@@ -160,6 +189,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
 
     // 5 — plan.
     let planned: AgentAction[];
+    const planStartedAt = performance.now();
     try {
       planned = await options.gateway.plan(request);
     } catch (error) {
@@ -170,6 +200,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
           : 'PLANNER_FAILED',
       );
     }
+    stage.planMs += performance.now() - planStartedAt;
     if (planned.length === 0) {
       steps.push({ index, action: null, outcome: 'no_action', ok: true });
       return stop('completed');
@@ -181,6 +212,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
       steps.push({ index, action: null, outcome: 'no_action', ok: true });
       return stop('completed');
     }
+    const executeStartedAt = performance.now();
     let outcome: ExecuteOutcome;
     try {
       const response = await options.bridge.execute(action);
@@ -188,6 +220,7 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
     } catch {
       outcome = 'EXEC_FAILED';
     }
+    stage.executeMs += performance.now() - executeStartedAt;
     const ok = outcome === 'executed';
     if (ok) actionsExecuted++;
     steps.push({ index, action, outcome, ok });

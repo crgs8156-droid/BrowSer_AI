@@ -51,7 +51,13 @@ export function AgentTask() {
       setState('done');
     } catch {
       setState('done');
-      setResult({ status: 'error', reason: 'LOOP_CRASHED', steps: [], actionsExecuted: 0 });
+      setResult({
+        status: 'error',
+        reason: 'LOOP_CRASHED',
+        steps: [],
+        actionsExecuted: 0,
+        stageMs: { scanMs: 0, enforceMs: 0, planMs: 0, executeMs: 0, totalMs: 0 },
+      });
     }
   };
 
@@ -91,6 +97,7 @@ export function AgentTask() {
           <p className="text-xs text-neutral-500">
             {result.actionsExecuted} action{result.actionsExecuted === 1 ? '' : 's'} executed
             {result.reason !== undefined && result.status !== 'completed' ? ` · ${result.reason}` : ''}
+            {` · ${(result.stageMs.totalMs / 1000).toFixed(1)}s local`}
           </p>
           {result.steps.length > 0 && (
             <ul className="mt-2 space-y-1 text-xs text-neutral-700" data-testid="agent-steps">

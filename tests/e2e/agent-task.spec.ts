@@ -37,6 +37,9 @@ test('agent loop fills the form via aliases and submits', async ({ extContext, p
   const page = await openTestPage(extContext, FORM_PAGE);
 
   await panel.getByPlaceholder(/fill the form/).fill('fill the form with my details and submit');
+  // Playwright's fill() can activate the panel TAB (in production the panel is a real
+  // side panel and the web page stays active). Restore that invariant before running.
+  await page.bringToFront();
   await panel.getByRole('button', { name: 'Run agent task' }).dispatchEvent('click');
 
   const result = panel.getByTestId('agent-result');

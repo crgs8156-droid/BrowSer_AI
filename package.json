@@ -14,6 +14,7 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "bench": "vitest run --config vitest.bench.config.ts",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium"
   },

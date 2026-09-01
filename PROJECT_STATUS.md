@@ -917,6 +917,101 @@ A source scan proves the firewall/validator/planner/loop modules contain no
 
 ---
 
+## 9g. Milestone 7 — telemetry, PrivAgent-Bench, leakage sentinel measurement
+
+_Added 2026-09-01. All numbers below were actually measured in this workspace; nothing is
+claimed that was not run (CLAUDE.md §22)._
+
+### Scope
+
+The M7 milestone from `docs/architecture.md`: the **telemetry/audit-log module** and the
+**PrivAgent-Bench** benchmark harness (blueprint §10/§11/§7) that turns the privacy and
+utility claims into MEASURED numbers, plus `docs/benchmark.md` as the benchmark
+specification.
+
+### Design decisions
+
+- **Telemetry is value-free BY CONSTRUCTION** (`extension/src/telemetry/index.ts`): the
+  recorder copies a fixed allowlist of fields (`type`, `entityCategory`, `alias`,
+  `timestamp`) and drops everything else, so no caller can smuggle a raw value into the
+  log. Timings are name+milliseconds only. In-memory, session-scoped, bounded buffers
+  (1,000 entries, oldest evicted — same volatility philosophy as the vault, R15).
+  `exportSummary()` exposes counts + p50/p95/max percentiles only.
+- **Agent loop instrumented**: `AgentRunResult.stageMs` now carries cumulative
+  scan/enforce/plan/execute/total durations (blueprint §10 "local inference latency");
+  the panel displays total local time.
+- **PrivAgent-Bench fixtures** (`benchmark/fixtures.json`): the eight §10 page/task
+  families with difficulty levels, synthetic uniquely-identifiable canaries
+  (`BENCH_*`, Invariant 6), and §5-style safe-item false-positive controls (prices,
+  order/product/ledger IDs, dates).
+- **The leakage sentinel MEASURES, it does not assert** (`benchmark/run.ts`):
+  `runLeakageProbe` drives the REAL loop over each fixture page, captures every
+  outbound request, and searches payloads + step records for exact/case/URL-encoded
+  canary variants — the §7 leakage rate is computed, and a non-zero rate is a benchmark
+  FINDING (that is exactly how it caught the name-leak below).
+- **§11 three-way comparison is generated per page**: no-protection vs full-redaction
+  vs PrivAgent — payload bytes AND fillable sensitive slots, producing the data for the
+  blueprint's "winning graph".
+- **Multi-signal detection added where the sentinel caught a real leak** (blueprint
+  §5): during bench development the sentinel measured a 0.25 leakage rate on the
+  registration page — planted person-name values rode verbatim inside
+  `sanitizedVisibleText` because no pattern matches a name. `detectLabeledValues`
+  (strict `Name:`/`Patient:`/`Student:`/`Address:` label evidence + credential keywords
+  with whitespace separators) now feeds the loop and the recall evaluation. This is the
+  honest §5 ablation ("context-aware vs pattern matching") starting to exist.
+
+### Files added
+
+- `benchmark/fixtures.json`, `benchmark/run.ts`
+- `tests/benchmark/rubric.bench.ts`, `vitest.bench.config.ts` (`npm run bench`)
+- `tests/unit/telemetry.test.ts`, `tests/e2e/bench-tasks.spec.ts`
+- `docs/benchmark.md`
+
+### Files modified
+
+- `extension/src/telemetry/index.ts` — implemented from the M7 stub
+- `extension/src/agent/loop.ts` — `stageMs` timings + multi-signal entity collection
+- `extension/src/perception/pii/index.ts` — additive `detectLabeledValues`
+- `extension/src/sidepanel/AgentTask.tsx` — shows total local time
+- `package.json` — `bench` script; `tsconfig.json` — includes the bench config
+- `.github/workflows/ci.yml` — `benchmark` job with artifact upload
+
+### Validation results — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck | `npm run typecheck` | ✅ pass |
+| Lint | `npm run lint` | ✅ pass |
+| Unit + integration | `npm test` | ✅ **315 passed / 315** (was 308 — +7 telemetry) |
+| Bench | `npm run bench` | ✅ 3 passed (golden gates: recall/FPR/leakage/task-success) |
+| Build | `npm run build` | ✅ pass |
+| E2E | `npm run e2e` | ✅ **17 passed / 17** (was 13 — +4 real-extension bench tasks) |
+| Backend | `pytest -q` | ✅ 10 passed / 10 |
+| CI | benchmark job + artifact upload added | ✅ |
+
+### Measured results (full details in docs/benchmark.md + reports artifact)
+
+- PII recall **100%** (25/25 planted items across 5 categories, multi-signal)
+- False-positive rate **0%** (16 safe controls)
+- Leakage rate **0%** (8 pages × full agent runs, sentinel-measured)
+- Task success rate **100%** (4 DOM-feasible families, REAL extension e2e)
+- Credential-bearing pages: **fail-closed blocked, 0 bytes transmitted** (4/4)
+- §11 comparison: PrivAgent preserves all fillable slots at ~160 B where full redaction
+  preserves 0 slots — the measured "winning graph" direction
+- Local inference latency p50 ≈ 0.01 ms/page (node-side pipeline)
+
+### Known limitations
+
+- Free-text values with NO introducing label and NO reliable pattern (a name mid-sentence)
+  remain undetectable — documented boundary; NLP/context classification is future work.
+- Resource utilization (rubric #4) currently measures bundle size, per-stage durations
+  and request bytes; `performance.memory` is measured only when present; CPU/GPU/RAM on
+  target hardware is not instrumented yet.
+- Latency is node-side; full in-browser per-stage telemetry UI lands with the dashboard.
+- Visual-only (canvas/image) pages are not yet part of the task-success metric.
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
