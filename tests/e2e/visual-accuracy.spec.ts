@@ -29,24 +29,28 @@ interface VisualStats {
 }
 
 function canvasPage(lines: string[]): string {
-  const draws = lines
+  // ONE canvas per value: single-line regions OCR far more reliably than multi-line
+  // blocks, and each region is cropped + analyzed independently by the pipeline.
+  const canvases = lines
     .map(
-      (line, index) =>
-        `ctx.fillText(${JSON.stringify(line)}, 24, ${64 + index * 44});`,
+      (line, index) => `
+  <canvas class="bench-canvas" width="720" height="110" style="border:1px solid #ddd; margin:8px 0"></canvas>
+  <script>
+    (() => {
+      const ctx = document.querySelectorAll('.bench-canvas')[${index}].getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 720, 110);
+      ctx.fillStyle = '#111111';
+      ctx.font = '36px monospace';
+      try { ctx.letterSpacing = '2px'; } catch { /* older engines: default spacing */ }
+      ctx.fillText(${JSON.stringify(line)}, 24, 70);
+    })();
+  </script>`,
     )
     .join('\n');
   return `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">
   <p>Membership profile</p>
-  <canvas id="profile" width="640" height="${80 + lines.length * 44}" style="border:1px solid #ddd"></canvas>
-  <script>
-    const ctx = document.getElementById('profile').getContext('2d');
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, 640, ${80 + lines.length * 44});
-    ctx.fillStyle = '#111111';
-    ctx.font = '30px monospace';
-    try { ctx.letterSpacing = '2px'; } catch { /* older engines: default spacing */ }
-    ${draws}
-  </script>
+  ${canvases}
 </body></html>`;
 }
 
