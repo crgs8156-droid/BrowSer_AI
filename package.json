@@ -20,6 +20,7 @@
     "e2e:install": "playwright install chromium"
   },
   "dependencies": {
+    "onnxruntime-web": "^1.29.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tesseract.js": "^6.0.1",

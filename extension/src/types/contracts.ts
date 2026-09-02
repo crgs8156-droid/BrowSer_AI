@@ -139,6 +139,12 @@ export interface VisualPerceptionResult {
    * Absent when no regions were analysed.
    */
   contentStatus?: VisualContentStatus;
+  /**
+   * M7.5 — on-device BlazeFace (ONNX WASM) face statistics for this run: faces found
+   * in the raster and how many were blacked out BEFORE the OCR analyzer saw them.
+   * Counts only — never pixels, boxes, or images.
+   */
+  faceStats?: { facesDetected: number; facesBlurred: number };
 }
 
 /** Outcome of a genuine OCR/vision content-analysis pass. `not_available` is the
@@ -212,7 +218,22 @@ export type PolicySignalCategory =
   | 'dom_pii'
   | 'visual_text_like'
   | 'visual_uncertain'
+  | 'visual_high_risk'
   | 'restricted_page';
+
+// ---------------------------------------------------------------------------
+// M7.5 — page-type classification (rule-based; MobileViT-XXS upgrade path).
+// The classifier sees only structural DOM signals (field types/labels) and page
+// text — never pixels — so its output is safe to cross the remote boundary.
+// ---------------------------------------------------------------------------
+
+export type VisualPageType = 'payment' | 'auth' | 'form' | 'medical' | 'general';
+
+export interface PageClassification {
+  pageType: VisualPageType;
+  /** Confidence in THIS classification (structural/label evidence quality). */
+  confidence: number;
+}
 
 /**
  * Signals handed to the policy engine. Every field is optional; absence is
@@ -221,6 +242,8 @@ export type PolicySignalCategory =
 export interface PolicySignals {
   /** PII/DOM entities from M1/M2. `undefined` ⇒ detection did not run. */
   entities?: SensitiveEntity[];
+  /** M7.5 — rule-based page-type classification, when it ran. */
+  visualContext?: PageClassification;
   /** M3 result, when visual perception ran. `undefined` ⇒ it did not run. */
   visual?: VisualPerceptionResult;
   /** True when the active page is a browser-restricted surface (from M3). */
@@ -294,6 +317,8 @@ export interface FindingDecision {
 export interface PolicyReport {
   overall: PolicyDecision;
   findings: FindingDecision[];
+  /** M7.5 — the page-type classification that informed this report, when present. */
+  visualContext?: PageClassification;
 }
 
 export interface AliasRecord {

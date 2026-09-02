@@ -6,6 +6,7 @@ export default tseslint.config(
   {
     ignores: [
       'dist/**',
+      'dist-firefox/**',
       'node_modules/**',
       'backend/**',
       'coverage/**',

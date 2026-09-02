@@ -1163,6 +1163,93 @@ Firefox MV3 structure ✅
 
 ---
 
+## 9k. On-device face detection (ONNX WASM), page-type classification, policy gate
+
+_Added 2026-09-02. All gates below were actually executed (CLAUDE.md→CONTRIBUTING §22)._
+
+### Scope
+
+M7.5 milestone: on-device BlazeFace face detection + blurring via ONNX Runtime Web
+(WASM backend ONLY — WebGPU is unstable in MV3 contexts and fails silently), a
+rule-based page-type classifier wired into the policy layer, and the model/runtime
+build plumbing. Zero remote calls.
+
+### Design decisions
+
+- **Face blur runs in the side panel, not the offscreen document.** The M3
+  split-by-context decision put rasterization + analysis in the panel; the face-blur
+  step consumes THAT raster where it lives. Moving inference to the (unregistered M0)
+  offscreen document would add a cross-document pixel message path and a new
+  permission for zero capability gain. The offscreen doc stays reserved (its M0
+  header says the same).
+- **Model source deviation, documented**: the spec named PINTO_model_zoo
+  `307_BlazeFace` — the directory is `030_BlazeFace` and its model tarball is served
+  from an S3 host blocked by the build sandbox. A reachable end-to-end export with an
+  IDENTICAL runtime contract was used instead (NCHW `[1,3,128,128]` input; graph-baked
+  0.7 threshold + NMS; [N,16] normalized output rows). `scripts/fetch-blazeface.sh`
+  tries the PINTO source first, then the mirror.
+- **Normalization evidence beats the brief**: the brief said [0,1]; the exporter's own
+  notebook normalizes `x/127.5 - 1.0` → [-1,1] (MediaPipe TFLite heritage).
+  CONTRIBUTING §3 (never invent) — evidence wins; the constant is isolated in
+  `preprocessRaster`.
+- **Engine is runtime-agnostic**: `createFaceBlurEngine({createSession})` accepts any
+  `FaceSessionLike` (minimal `{inputNames, run}` shape); the real ORT session is
+  wrapped into it. Tests mock the session entirely (ONNX WASM cannot run under Vitest)
+  and the pre/post-processing, parsing and pixel-blur functions are pure and directly
+  tested. Model absence → `FACE_BLUR_UNAVAILABLE` trace once, zero faces, pipeline
+  continues (availability remembered — no retry spam).
+- **Page classifier is rule-based by design** (the brief itself rules out
+  MobileViT-XXS: an ImageNet classifier cannot classify page types). Priority order
+  payment → auth → form → medical → general with the spec'd confidences; TODO marks
+  the MobileViT ONNX upgrade path in `pageClassifier.ts`.
+- **Policy gate never weakens a BLOCK**: payment/auth page types floor the overall
+  decision at SANITIZE and add the `visual_high_risk` signal; an existing BLOCK
+  survives (fail closed, Rule 7). `visualContext` travels on `PolicyReport`
+  (informational, value-free — categories only).
+- **PART D (CSP)**: the manifest CSP already carries `'wasm-unsafe-eval'` (set for
+  Tesseract) — the ORT WASM backend needs nothing more. `web_accessible_resources`
+  was deliberately NOT added: the model/runtime are fetched by the extension's own
+  panel page, which needs no WAR — exposing them to web pages would be a
+  fingerprinting surface.
+
+### Files
+
+- Added: `extension/src/perception/visual/faceBlur.ts`, `extension/src/perception/visual/pageClassifier.ts`,
+  `extension/src/perception/visual/models/README.md`, `scripts/fetch-blazeface.sh`,
+  `tests/unit/perception/visual/{pageClassifier,faceBlur,policy-visual-context}.test.ts`
+- Modified: `extension/src/types/contracts.ts` (`VisualPageType`, `PageClassification`,
+  `visual_high_risk` signal, `PolicySignals.visualContext`, `PolicyReport.visualContext`,
+  `VisualPerceptionResult.faceStats`), `extension/src/policy/index.ts` (page-type gate),
+  `extension/src/perception/visual/service.ts` (blur-before-OCR + `faceStats`),
+  `extension/src/agent/loop.ts` + `extension/src/sidepanel/App.tsx` (classification wiring),
+  `extension/src/diag/ocr-trace.ts` (face-blur stages), `vite.config.ts` (ONNX asset copy),
+  `package.json` (`onnxruntime-web ^1.18.0`)
+
+### Validation — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck | `npm run typecheck` | ✅ pass |
+| Lint | `npm run lint` | ✅ pass |
+| Unit + integration | `npm test` | ✅ **342 passed / 342** (+18: classifier, face engine, policy gate) |
+| Bench | `npm run bench` | ✅ 3 passed |
+| Build | `npm run build` | ✅ pass (`dist/ort/` copied; model optional) |
+| E2E | `npm run e2e` | ✅ **23 passed / 23** |
+| Backend | `pytest -q` | ✅ 10 passed / 10 |
+
+### Known limitations
+
+- Face detection has NOT been verified against real faces in a browser yet (the model
+  file must be fetched first — sandbox network policy blocks the PINTO S3 host;
+  `scripts/fetch-blazeface.sh` handles both sources). The pipeline degrades to zero
+  faces, which is exactly what the current test runs observe.
+- The end-to-end model reports detections WITHOUT per-face scores (threshold + NMS are
+  in-graph) — `facesDetected`/`facesBlurred` counts are the honest surface.
+- Page classifier sees DOM structure/text only; canvas-only page types are invisible to
+  it (documented; MobileViT upgrade path marked in code).
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CONTRIBUTING.md §22) — these were found while starting M3, not introduced by

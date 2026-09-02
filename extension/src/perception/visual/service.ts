@@ -34,6 +34,7 @@ import { detectVisualCapabilities, preferredBackend } from './capability';
 import { decideVisualPerception } from './decision';
 import { createBrowserRasterizer } from './raster';
 import { MAX_ANALYSIS_EDGE, MAX_REGIONS, OCR_ANALYSIS_EDGE, selectRegions } from './regions';
+import { createFaceBlurEngine, type FaceBlurEngine } from './faceBlur';
 import { planBelowFoldBands } from './bands';
 import { disposeVisualProvider, resolveVisualProvider } from './providers/registry';
 import {
@@ -44,6 +45,14 @@ import { mapRasterBboxToRegion } from './coords';
 import { BROWSER_RESTRICTION_REASON, isRestrictedUrl } from './restricted';
 import type { RasterizeFn, VisualCapabilities } from './types';
 import { ocrTrace } from '../../diag/ocr-trace';
+
+// M7.5 — lazy face-blur engine (ONNX WASM, panel context): blurs painted faces in the
+// raster BEFORE the OCR analyzer reads it. Never throws; zeros on unavailability.
+let faceBlurEngine: FaceBlurEngine | null = null;
+function getFaceBlurEngine(): FaceBlurEngine {
+  faceBlurEngine ??= createFaceBlurEngine();
+  return faceBlurEngine;
+}
 
 export interface VisualPerceptionDeps {
   /** Defaults to the M2 screenshot module. Injectable for tests. */
@@ -203,6 +212,8 @@ export function createVisualPerceptionService(
     // (no regions analysed → left absent), becomes 'not_available' when the default
     // engine is used, 'ok' when a real engine ran, 'failed' if one errored.
     let contentStatus: VisualContentStatus | undefined;
+    // M7.5 — aggregate face-blur counters across all regions of this run.
+    const runFaces = { detected: 0, blurred: 0 };
     const escalate = (next: VisualContentStatus): void => {
       // failed dominates ok dominates not_available (fail closed on any error).
       const rank: Record<VisualContentStatus, number> = { not_available: 0, ok: 1, failed: 2 };
@@ -251,6 +262,12 @@ export function createVisualPerceptionService(
           // 7. First heavy work in the pipeline — provider loads lazily, here.
           const provider = await resolveVisualProvider();
           const regionObservations = await provider.analyze(raster, region, backend);
+
+          // 7a. M7.5 — face detection + blurring on the raster BEFORE OCR sees it
+          //     (ONNX WASM, on-device). Never throws; zeros when the model is absent.
+          const faceStats = await getFaceBlurEngine().blur(raster);
+          runFaces.detected += faceStats.facesDetected;
+          runFaces.blurred += faceStats.facesBlurred;
 
           // 7b. Genuine OCR/vision content analysis over the SAME raster. With no engine
           //     registered this returns `not_available` and zero findings — never faked.
@@ -368,6 +385,7 @@ export function createVisualPerceptionService(
         observations,
         contentFindings,
         contentStatus,
+        faceStats: { facesDetected: runFaces.detected, facesBlurred: runFaces.blurred },
         metrics: metrics({
           candidatesConsidered: candidateCount,
           regionsSelected: totalRegions,

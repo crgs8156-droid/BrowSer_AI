@@ -13,6 +13,7 @@ import { detectPII } from '../perception/pii';
 import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
 import { enforcePrivacy } from '../sanitizer';
+import { classifyPage } from '../perception/visual/pageClassifier';
 import { toSensitiveCategory } from '../sanitizer/alias';
 import { createLocalVault } from '../vault';
 import type { PolicySignals, RiskSeverity } from '../types/contracts';
@@ -120,7 +121,9 @@ export function App() {
       // M4 (policy) + M5 (enforce): alias every recoverable value into the LOCAL vault,
       // mask visual regions, and produce a structured, safe result. `redact` runs on the
       // real page text here; the vault (local, in memory) holds the alias↔value mapping.
-      const signals: PolicySignals = { entities, visual, restricted: false };
+      // M7.5 — rule-based page-type classification from already-collected signals.
+      const visualContext = classifyPage(response.structure, pageText);
+      const signals: PolicySignals = { entities, visual, visualContext, restricted: false };
       const vault = createLocalVault();
       const enforceStartedAt = performance.now();
       const result = await enforcePrivacy({

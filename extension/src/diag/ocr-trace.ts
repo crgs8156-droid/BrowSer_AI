@@ -24,6 +24,8 @@ export type OcrTraceStage =
   | 'OCR_STARTED'
   | 'OCR_RESULT'
   | 'OCR_REGION_COUNT'
+  | 'FACE_BLUR_DONE'
+  | 'FACE_BLUR_UNAVAILABLE'
   | 'PRIVACY_FINDINGS'
   | 'UI_FINDINGS';
 

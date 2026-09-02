@@ -515,7 +515,7 @@ function dedupeAndSortFindings(findings: FindingDecision[]): FindingDecision[] {
  * synchronous; safe to call on every page because it performs no work of its
  * own beyond reducing the signals it is handed.
  */
-export function decidePolicyReport(signals: PolicySignals): PolicyReport {
+function computePolicyReport(signals: PolicySignals): PolicyReport {
   const root = asRecord(signals);
   if (!root) {
     // Whole input is missing/garbage → fail closed, no findings to enumerate.
@@ -622,6 +622,34 @@ export function decidePolicyReport(signals: PolicySignals): PolicyReport {
   const findings = dedupeAndSortFindings(findingContributions.map(contributionToFinding));
 
   return { overall, findings };
+}
+
+/**
+ * Public entry point. Applies the M7.5 page-type gate ON TOP of the base reduction:
+ * a page classified `payment` or `auth` is high-risk context — the overall decision
+ * is floored at SANITIZE (a BLOCK is never downgraded — fail closed, Rule 7) and the
+ * `visual_high_risk` signal is surfaced. The classification itself travels on the
+ * report as `visualContext`.
+ */
+export function decidePolicyReport(signals: PolicySignals): PolicyReport {
+  const report = computePolicyReport(signals);
+  // The classification travels on the report for EVERY page type (informational).
+  if (signals?.visualContext !== undefined) report.visualContext = signals.visualContext;
+  const pageType = signals?.visualContext?.pageType;
+  if (pageType !== 'payment' && pageType !== 'auth') return report;
+
+  const overall = report.overall;
+  report.overall = {
+    ...overall,
+    action: overall.action === 'BLOCK' ? 'BLOCK' : 'SANITIZE',
+    severity: overall.severity === 'none' ? 'medium' : overall.severity,
+    signals: overall.signals.includes('visual_high_risk')
+      ? overall.signals
+      : [...overall.signals, 'visual_high_risk'],
+    explanation: `${overall.explanation}; high-risk page type (${pageType}) — sanitized regardless of other signals`,
+  };
+  report.visualContext = signals.visualContext;
+  return report;
 }
 
 /**
