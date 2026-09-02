@@ -1,7 +1,10 @@
 # PrivAgent — PROJECT_STATUS
 
 _Last updated: 2026-08-30_
-_Author: Real local OCR (Tesseract.js) integrated — visual content pass live_
+_Author: Real local OCR (Tesseract.js) integrated — visual content pass live_.
+_Engineering rules: [CONTRIBUTING.md](CONTRIBUTING.md) (formerly `CLAUDE.md`; section
+numbers unchanged)._
+
 
 ---
 
@@ -33,7 +36,7 @@ pending manual Chrome verification.**
 - **Bundling** — `vite.config.ts` `publicDir: 'extension/public'` ships the OCR
   runtime into `dist/`.
 
-### Honest engine behaviour (CLAUDE.md §22)
+### Honest engine behaviour (CONTRIBUTING.md §22)
 - Load failure throws a tagged `OCR_ENGINE_UNAVAILABLE`; the analyzer reports
   `not_available` (no engine) or `failed` (engine threw) — it never fabricates text.
 - The wasm engine cannot run under vitest/node, so unit tests verify only the
@@ -502,7 +505,7 @@ ever silently dropped. Full design in `docs/m5-sanitization.md`.
 - **Aliases only cross the boundary; values stay in the vault.** The alias
   directory is `{ alias, category }[]` (type only). The alias↔value mapping lives
   solely in the in-memory `LocalVault`, session-scoped and wiped by `clearSession`
-  (CLAUDE.md §5 Rule 3/4).
+  (CONTRIBUTING.md §5 Rule 3/4).
 - **Visual enforcement is region masking, not outbound image scrubbing.**
   `RemoteAgentRequest` has no image field, so raw pixels never cross the boundary
   by construction (M3 invariant). M5 emits geometry-only mask directives and
@@ -519,7 +522,7 @@ ever silently dropped. Full design in `docs/m5-sanitization.md`.
   neutralised and the page is not uncertain. Cleartext `sanitizedText` is emitted
   **only** when the page is fully safe (`enforced && !blocked && !restricted`);
   otherwise it is withheld (empty), so an unidentified raw value can never ride
-  out on the sanitized text (CLAUDE.md §5 Rule 7).
+  out on the sanitized text (CONTRIBUTING.md §5 Rule 7).
 
 ### Files added
 
@@ -600,7 +603,7 @@ missing receiver it injects the built content-script file(s) — read at runtime
 `chrome.runtime.getManifest().content_scripts[0].js`, using the existing `scripting` +
 http/https `host_permissions` (no new grant) — and retries. `PAGE_UNREACHABLE` is surfaced
 **only** when injection itself is refused, i.e. the browser genuinely forbids access (fail
-closed, CLAUDE.md §5 Rule 7). The `SCROLL_VIEWPORT` relay uses the same path. Also removed the
+closed, CONTRIBUTING.md §5 Rule 7). The `SCROLL_VIEWPORT` relay uses the same path. Also removed the
 stray `action.default_popup` from the manifest so the toolbar icon opens the **side panel**
 (it previously suppressed `openPanelOnActionClick`).
 
@@ -745,7 +748,7 @@ WHAT sensitive value a captured region contains — distinct from the coarse str
   Findings carry `category`, `confidence`, raster-space `bbox`, optional `text`.
 - **Honest default** (`perception/visual/content-analyzer.ts`): with no engine registered the
   registry returns a constant analyzer that ALWAYS reports `not_available` and zero findings —
-  nothing is constructed, nothing is fabricated (CLAUDE.md §22). `registerVisualContentAnalyzer()`
+  nothing is constructed, nothing is fabricated (CONTRIBUTING.md §22). `registerVisualContentAnalyzer()`
   is the single, lazy integration point for a real local ONNX/OCR engine later.
 - **Coordinate mapping** (`perception/visual/coords.ts`, pure): `mapRasterBboxToRegion` inverts
   the rasterizer's crop+downscale so an engine's raster-pixel box maps back to the region's CSS-px
@@ -798,9 +801,371 @@ WHAT sensitive value a captured region contains — distinct from the coarse str
 
 ---
 
+## 9f. Milestone 6 — agent loop, action bridge, firewall seam, backend planner
+
+_Added 2026-09-01. All numbers below were actually measured in this workspace; nothing is
+claimed that was not run (CONTRIBUTING.md §22)._
+
+### Scope
+
+The M6 milestone from `docs/architecture.md`: the provider-agnostic **agent**, the
+**structured action validator + local action bridge**, and — because a working loop
+requires egress — the **privacy firewall** that CONTRIBUTING.md §5 Rule 6 makes the single
+outbound boundary. Plus the backend planner endpoint (`POST /v1/plan`) and a CI
+workflow (the repository previously had none).
+
+### Design decisions
+
+- **Panel-driven loop, pure modules.** `runAgentLoop` (`extension/src/agent/loop.ts`)
+  lives in a DI-only module: observation (SCAN_PAGE relay), enforcement (M4+M5),
+  firewall, planner and bridge are all injected, so unit tests run the REAL
+  enforcement/firewall/planner against fake pages. The panel (`AgentTask.tsx`) only
+  wires real implementations and renders alias-level step records.
+- **Stateless planner; the page state is the loop memory.** The deterministic planner
+  (`agent/planner.ts`) is a pure function of the sanitized request and returns AT MOST
+  ONE action. After execution the loop re-observes: a filled field reports `filled:
+  true` in the sanitized structure, so the planner advances without any memory. This
+  also makes it prompt-injection-resistant by construction: page labels are matched
+  only against a fixed structural keyword table, never interpreted as instructions
+  (CONTRIBUTING.md §6) — asserted by a dedicated unit test.
+- **`SanitizedNode`s carry no values.** The remote planner sees field semantics
+  (tag/type/label/name), a `filled` boolean and a CSS selector — never a value. A
+  label/name crosses only when the M2 detector finds nothing in it (fail closed,
+  gated in `toSanitizedNodes`).
+- **Two-stage validation, then LOCAL resolution, then execution.**
+  `actions/validate.ts` (pure): schema (exact shapes, no extra fields — a malicious
+  planner cannot smuggle payload) and policy (NAVIGATE only to allowlisted https
+  origins — default-deny; bounded SCROLL; TYPE/SELECT values must be an alias or scan
+  clean against `detectPII`, so a hallucinating/malicious planner cannot type a raw
+  protected value). `actions/index.ts` bridge: schema → policy → vault.resolve (alias
+  → value, on-device, latest possible moment) → content-script execution. Unknown or
+  expired aliases fail closed (`ALIAS_UNKNOWN`).
+- **Firewall = structure + alias grammar + content scan.** `firewall/inspect.ts` fails
+  closed unless the payload is EXACTLY a `RemoteAgentRequest` (no missing/extra keys),
+  every alias matches `USER_<CATEGORY>_<n>`, and the same local detector (M2) scans
+  clean over every text-bearing string. Honest limit (documented, §13): it cannot
+  prove absence of PII the detector does not recognize; that risk is bounded upstream
+  by `enforcePrivacy` withholding `sanitizedText` unless the page was fully enforced.
+- **No-progress guard.** Executing the identical action twice in a row (e.g. a submit
+  button that never disables) stops the loop with `max_steps/NO_PROGRESS` instead of
+  silently burning the step budget.
+- **Fail-closed stops everywhere:** blocked page (critical credential), restricted
+  surface, unenforceable findings, firewall deny, planner failure, rejected action —
+  each a structured status surfaced in the UI, never retried blindly, never silent.
+- **Backend mirrors the extension planner.** `backend/fastapi/app/agent.py` implements
+  the same deterministic heuristics over the sanitized contract (pydantic-validated:
+  alias grammar, action-kind allowlist, size caps → 422), with `AGENT_PROVIDER` as the
+  S4 seam — selecting `remote` raises 501 rather than pretending (CONTRIBUTING.md §22).
+
+### Files added
+
+- `extension/src/actions/validate.ts`, `extension/src/actions/index.ts` (rewritten from the M0 stub)
+- `extension/src/agent/planner.ts`, `extension/src/agent/remote.ts`, `extension/src/agent/loop.ts`, `extension/src/agent/index.ts` (rewritten from the M0 stub)
+- `extension/src/firewall/inspect.ts`, `extension/src/firewall/index.ts` (implemented from the M7 seam — required for any egress)
+- `extension/src/sidepanel/AgentTask.tsx`
+- `backend/fastapi/app/agent.py`, `backend/fastapi/tests/test_plan.py`
+- `tests/unit/{agent-planner,actions-validate,firewall,agent-loop}.test.ts`
+- `tests/integration/agent-leakage.test.ts`, `tests/e2e/agent-task.spec.ts`
+- `.github/workflows/ci.yml`
+
+### Files modified
+
+- `extension/src/types/contracts.ts` — additive M6 types (`SanitizedNode`); `RemoteAgentRequest.sanitizedPageStructure` narrowed from `unknown[]` to `SanitizedNode[]` (nothing else constructed it yet)
+- `extension/src/types/messages.ts` — additive `EXECUTE_ACTION` channel + `FieldStructure` on `ScanPageResponse` (raw, INTERNAL-ONLY, same boundary as `pageText`)
+- `extension/src/content/index.ts` — structure collection + constrained `EXECUTE_ACTION` executor (CLICK/TYPE/SELECT/SCROLL/NAVIGATE only; structured outcome codes; never evaluates page strings)
+- `extension/src/background/index.ts` — `EXECUTE_ACTION` relay via the existing hardened relay path (no new permissions)
+- `extension/src/sidepanel/App.tsx` — 2 lines (import + `<AgentTask />`)
+- `backend/fastapi/app/main.py` — added `POST /v1/plan`; `/health` untouched
+
+### Validation results — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck | `npm run typecheck` | ✅ pass (0 errors) |
+| Lint | `npm run lint` | ✅ pass (0 errors) |
+| Unit + integration | `npm test` | ✅ **308 passed / 308** (31 files; was 271 — +37 new) |
+| Build | `npm run build` | ✅ pass |
+| E2E | `npm run e2e` | ✅ **13 passed / 13** (was 12 — +1 agent-task spec) |
+| Backend | `pytest -q` (backend/fastapi) | ✅ **9 passed / 9** |
+| CI | `.github/workflows/ci.yml` | added (node gates, backend pytest, e2e job) |
+
+### Privacy verification (canary-based, CONTRIBUTING.md §13)
+
+`tests/integration/agent-leakage.test.ts` plants synthetic canaries
+(`CANARY_EMAIL_001@example.test`, `555-123-4567`) in the page text of a full
+fill-and-submit run and asserts: (1) `fetch`/XHR/WebSocket/`sendBeacon` are stubbed to
+THROW and are never hit — the deterministic loop performs zero network I/O; (2) step
+records and every observed outbound request contain the aliases but never the canaries;
+(3) alias→value mappings exist only in the local vault; (4) console spies see no
+canary; (5) the remote gateway transmits ONLY after a firewall allow verdict, sends the
+inspected payload verbatim, refuses on deny, and rejects malformed planner responses.
+A source scan proves the firewall/validator/planner/loop modules contain no
+`console.*`/network/storage calls.
+
+### Known limitations
+
+- **No LLM provider yet.** The remote planner provider is a loud 501 seam (`S4`); the
+  Ollama/VLM adapter (`qwen2.5vl:7b`, JSON-schema-constrained) lands next. The
+  deterministic planner fully drives the demo.
+- **The agent loop uses DOM signals only.** M3 visual/OCR findings are part of the
+  scan-time pipeline but are not fed into per-step enforcement (cost/latency); a page
+  whose sensitive data exists ONLY inside images is filled-blank by the planner. Documented, not hidden.
+- **The firewall cannot prove absence of undetectable PII** (free-text names etc.) —
+  bounded upstream by `enforcePrivacy`'s withhold-cleartext gate; stated honestly.
+- **NAVIGATE is default-denied** (empty allowlist) — no e2e coverage of allowed
+  navigation yet; the validator is unit-tested.
+- **Below-fold controls** appear in the structure (whole-document query) but the
+  planner has no scrolling strategy of its own yet; SCROLL exists and is validated but
+  the deterministic planner never emits it.
+
+---
+
+## 9g. Milestone 7 — telemetry, PrivAgent-Bench, leakage sentinel measurement
+
+_Added 2026-09-01. All numbers below were actually measured in this workspace; nothing is
+claimed that was not run (CONTRIBUTING.md §22)._
+
+### Scope
+
+The M7 milestone from `docs/architecture.md`: the **telemetry/audit-log module** and the
+**PrivAgent-Bench** benchmark harness (blueprint §10/§11/§7) that turns the privacy and
+utility claims into MEASURED numbers, plus `docs/benchmark.md` as the benchmark
+specification.
+
+### Design decisions
+
+- **Telemetry is value-free BY CONSTRUCTION** (`extension/src/telemetry/index.ts`): the
+  recorder copies a fixed allowlist of fields (`type`, `entityCategory`, `alias`,
+  `timestamp`) and drops everything else, so no caller can smuggle a raw value into the
+  log. Timings are name+milliseconds only. In-memory, session-scoped, bounded buffers
+  (1,000 entries, oldest evicted — same volatility philosophy as the vault, R15).
+  `exportSummary()` exposes counts + p50/p95/max percentiles only.
+- **Agent loop instrumented**: `AgentRunResult.stageMs` now carries cumulative
+  scan/enforce/plan/execute/total durations (blueprint §10 "local inference latency");
+  the panel displays total local time.
+- **PrivAgent-Bench fixtures** (`benchmark/fixtures.json`): the eight §10 page/task
+  families with difficulty levels, synthetic uniquely-identifiable canaries
+  (`BENCH_*`, Invariant 6), and §5-style safe-item false-positive controls (prices,
+  order/product/ledger IDs, dates).
+- **The leakage sentinel MEASURES, it does not assert** (`benchmark/run.ts`):
+  `runLeakageProbe` drives the REAL loop over each fixture page, captures every
+  outbound request, and searches payloads + step records for exact/case/URL-encoded
+  canary variants — the §7 leakage rate is computed, and a non-zero rate is a benchmark
+  FINDING (that is exactly how it caught the name-leak below).
+- **§11 three-way comparison is generated per page**: no-protection vs full-redaction
+  vs PrivAgent — payload bytes AND fillable sensitive slots, producing the data for the
+  blueprint's "winning graph".
+- **Multi-signal detection added where the sentinel caught a real leak** (blueprint
+  §5): during bench development the sentinel measured a 0.25 leakage rate on the
+  registration page — planted person-name values rode verbatim inside
+  `sanitizedVisibleText` because no pattern matches a name. `detectLabeledValues`
+  (strict `Name:`/`Patient:`/`Student:`/`Address:` label evidence + credential keywords
+  with whitespace separators) now feeds the loop and the recall evaluation. This is the
+  honest §5 ablation ("context-aware vs pattern matching") starting to exist.
+
+### Files added
+
+- `benchmark/fixtures.json`, `benchmark/run.ts`
+- `tests/benchmark/rubric.bench.ts`, `vitest.bench.config.ts` (`npm run bench`)
+- `tests/unit/telemetry.test.ts`, `tests/e2e/bench-tasks.spec.ts`
+- `docs/benchmark.md`
+
+### Files modified
+
+- `extension/src/telemetry/index.ts` — implemented from the M7 stub
+- `extension/src/agent/loop.ts` — `stageMs` timings + multi-signal entity collection
+- `extension/src/perception/pii/index.ts` — additive `detectLabeledValues`
+- `extension/src/sidepanel/AgentTask.tsx` — shows total local time
+- `package.json` — `bench` script; `tsconfig.json` — includes the bench config
+- `.github/workflows/ci.yml` — `benchmark` job with artifact upload
+
+### Validation results — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck | `npm run typecheck` | ✅ pass |
+| Lint | `npm run lint` | ✅ pass |
+| Unit + integration | `npm test` | ✅ **315 passed / 315** (was 308 — +7 telemetry) |
+| Bench | `npm run bench` | ✅ 3 passed (golden gates: recall/FPR/leakage/task-success) |
+| Build | `npm run build` | ✅ pass |
+| E2E | `npm run e2e` | ✅ **17 passed / 17** (was 13 — +4 real-extension bench tasks) |
+| Backend | `pytest -q` | ✅ 10 passed / 10 |
+| CI | benchmark job + artifact upload added | ✅ |
+
+### Measured results (full details in docs/benchmark.md + reports artifact)
+
+- PII recall **100%** (25/25 planted items across 5 categories, multi-signal)
+- False-positive rate **0%** (16 safe controls)
+- Leakage rate **0%** (8 pages × full agent runs, sentinel-measured)
+- Task success rate **100%** (4 DOM-feasible families, REAL extension e2e)
+- Credential-bearing pages: **fail-closed blocked, 0 bytes transmitted** (4/4)
+- §11 comparison: PrivAgent preserves all fillable slots at ~160 B where full redaction
+  preserves 0 slots — the measured "winning graph" direction
+- Local inference latency p50 ≈ 0.01 ms/page (node-side pipeline)
+
+### Known limitations
+
+- Free-text values with NO introducing label and NO reliable pattern (a name mid-sentence)
+  remain undetectable — documented boundary; NLP/context classification is future work.
+- Resource utilization (rubric #4) currently measures bundle size, per-stage durations
+  and request bytes; `performance.memory` is measured only when present; CPU/GPU/RAM on
+  target hardware is not instrumented yet.
+- Latency is node-side; full in-browser per-stage telemetry UI lands with the dashboard.
+- Visual-only (canvas/image) pages are not yet part of the task-success metric.
+
+---
+
+## 9h. Telemetry dashboard (rubric #4 evidence, UI)
+
+_Added 2026-09-01, same session as §9g._
+
+### Scope
+
+The side panel now SURFACES the M7 telemetry: a `Telemetry` dashboard section showing
+privacy-event counts (DETECTED/SANITIZED/BLOCKED/ALIAS_RESOLVED/TASK_RESULT) and
+per-stage timing percentiles (p50/p95/max) — the visible, live evidence for the
+client-side resource-utilization metric.
+
+### Design decisions
+
+- **Session telemetry singleton** (`sidepanel/telemetry-session.ts`): one `Telemetry`
+  instance shared by the scan pipeline and the agent task, wrapped with a minimal
+  pub-sub; React reads it through `useSyncExternalStore`. The value-free guarantee
+  stays in the recorder — the wrapper only fans out notifications.
+- **Pipeline instrumentation**: `App.runScan` records `scan.detect`/`scan.visual`/
+  `scan.enforce`/`scan.total` timings and DETECTED (per category, normalized via
+  `toSensitiveCategory`) / SANITIZED / BLOCKED events; the agent task records
+  `agent.*` stage timings (from `AgentRunResult.stageMs`), ALIAS_RESOLVED (alias only)
+  and TASK_RESULT events.
+- The dashboard can only ever show counts and milliseconds — the recorder's
+  allowlist-copy makes a raw-value leak into the UI structurally impossible, and the
+  e2e asserts the planted raw values never appear in the dashboard text.
+
+### Files
+
+- Added: `extension/src/sidepanel/telemetry-session.ts`, `extension/src/sidepanel/TelemetryPanel.tsx`,
+  `tests/unit/telemetry-session.test.ts`, `tests/e2e/telemetry-panel.spec.ts`
+- Modified: `extension/src/sidepanel/App.tsx` (instrumentation + mount),
+  `extension/src/sidepanel/AgentTask.tsx` (events + timings)
+
+### Validation results — actually executed
+
+| Gate | Command | Result |
+| --- | --- | --- |
+| Typecheck / lint | `npm run typecheck` / `npm run lint` | ✅ pass |
+| Unit + integration | `npm test` | ✅ **318 passed / 318** (+3) |
+| Build | `npm run build` | ✅ pass |
+| E2E | `npm run e2e` | ✅ **18 passed / 18** (+1: dashboard fills from scan + agent run, value-free, reset works) |
+| Backend | `pytest -q` | ✅ 10 passed / 10 |
+
+### Known limitations
+
+- Telemetry is session-scoped in memory (resets on panel reload) — by design (R15);
+  persistent audit export remains future work.
+- Timings cover the local pipeline; full network-byte accounting per outbound request
+  is available in the bench, not yet surfaced live in the panel.
+
+---
+
+## 9i. Visual-context accuracy measured (rubric #1) — live OCR verification closed
+
+_Added 2026-09-01, same session as §9h._
+
+### Scope
+
+The last unmeasured rubric line (#1, 25%): pages whose sensitive values exist ONLY as
+painted pixels. A new e2e suite (`tests/e2e/visual-accuracy.spec.ts`) renders canvas-only
+pages, runs the REAL local pipeline (scan + visual check), and measures category-level
+accuracy via a value-free stats seam (`sidepanel/visual-stats.ts`: per-category counts
+only — recognized text/bboxes are never exposed, matching what the agent itself sees).
+
+### Root cause found and fixed en route
+
+The structural analysis budget (`MAX_ANALYSIS_EDGE = 192`) shrank 642px canvases to
+192px — 28px text became ~8px, unreadable. `OCR_ANALYSIS_EDGE = 1024` is now used for
+the analysis raster ONLY when a content analyzer is registered; the default no-engine
+pipeline is byte-identical to before.
+
+### Measured
+
+- contentStatus `ok` — the Tesseract.js wasm engine verifiably runs in headless Chromium
+  (closes the §0 "pending manual Chrome verification" item)
+- Category-level accuracy **100%** (2/2 pages: EMAIL+PHONE, PAYMENT), 0 false positives
+- Scan summary shows `OCR_REGION_n` masked rows with `textCount: 0` (visual-only proof)
+
+### Files
+
+- Added: `tests/e2e/visual-accuracy.spec.ts`, `extension/src/sidepanel/visual-stats.ts`
+- Modified: `extension/src/perception/visual/regions.ts` (`OCR_ANALYSIS_EDGE`),
+  `extension/src/perception/visual/service.ts` (conditional elevation),
+  `extension/src/sidepanel/{VisualStatus,App}.tsx` (stats recording),
+  `docs/benchmark.md` (rubric #1 section)
+
+### Validation — actually executed
+
+typecheck ✅ lint ✅ vitest **318/318** ✅ bench 3/3 ✅ build ✅ e2e **21/21** (+4) ✅
+backend 10/10 ✅ — reports: `benchmark/reports/visual-accuracy.{json,md}`
+
+---
+
+## 9j. Below-fold scrolling, allowlisted navigation, repo organization, CI fix
+
+_Added 2026-09-01/02, same session as §9h/§9i._
+
+### Scope
+
+Three planner/loop capability gaps closed, one CI defect fixed, and the repository
+reorganized for handoff.
+
+### What landed
+
+- **Below-fold scrolling**: `SanitizedNode.belowFold` (viewport-relative, recomputed on
+  every observation) → the deterministic planner emits one bounded `SCROLL(720)` before
+  interacting with below-fold controls; the re-observation decides when to stop
+  scrolling. Repeated scrolls are exempt from the no-progress guard (scrolling IS
+  progress-seeking); the step budget still bounds them. The executor also
+  `scrollIntoView`s before TYPE/CLICK/SELECT. E2E: a 1200px-tall page is filled and
+  submitted end-to-end (`below-fold.spec.ts`).
+- **Allowlisted NAVIGATE**: `RemoteAgentRequest.pageOrigin` (origin-only, value-free,
+  firewall-validated as such) + a NAVIGATE rule that emits ONLY origins taken from the
+  local policy allowlist and named in the task — never an invented URL, never when
+  already on the target. The loop derives a same-origin default allowlist (fail-closed
+  empty) and shares it with the bridge's per-execution policy provider; the panel reads
+  a user-configured allowlist from `chrome.storage.sync` (default empty). E2E:
+  portal.test → privagent.test navigation + fill + submit (`navigation.spec.ts`).
+- **CI fix**: the `node` job ran `npm test` BEFORE `npm run build`; the
+  built-extension integration suite validates the BUILT `dist/` manifest and failed on
+  every clean checkout since M6 (5 red runs). Build now precedes tests; the run on
+  this commit is the regression proof.
+- **Repo organization**: `CLAUDE.md` → `CONTRIBUTING.md` (tool-neutral engineering
+  rules; section numbers unchanged — 51 files of references swept); new `AGENTS.md`
+  agent entry point; blueprint PDF moved to `docs/`; README updated.
+- **Firefox spike (time-boxed)**: `scripts/build-firefox.mjs` post-processes `dist/`
+  into `dist-firefox/` — event-page background (the CRXJS loader's import target is
+  inlined; the script refuses module syntax), `sidebar_action` instead of the
+  `sidePanel` permission, `browser_specific_settings.gecko.id`. `npm run build:firefox`.
+
+### Validation — actually executed
+
+typecheck ✅ lint ✅ vitest **324/324** (+6) ✅ bench 3/3 ✅ build ✅ e2e **22/22** (+2:
+below-fold, navigation) ✅ backend 10/10 ✅ · `npm run build:firefox` produces a valid
+Firefox MV3 structure ✅
+
+### Known limitations
+
+- Firefox: NOT executed in a real browser (Playwright cannot load extensions in
+  Firefox); manual path = `web-ext run --source-dir dist-firefox`. The toolbar-click
+  panel-open is Chrome-only — Firefox users open the sidebar manually.
+- Same-origin default navigation: cross-origin agent flows require the user-configured
+  allowlist (storage key `navigationAllowlist`).
+- Below-fold interaction assumes viewport-height scrolls; extremely tall/lazy pages may
+  consume the step budget (bounded, honest).
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
-Recorded for honesty (CLAUDE.md §22) — these were found while starting M3, not introduced by
+Recorded for honesty (CONTRIBUTING.md §22) — these were found while starting M3, not introduced by
 it.
 
 1. **M1's `npm run e2e — ✅ all e2e tests passed` was not reproducible.**
@@ -820,26 +1185,19 @@ it.
 
 ## 11. Next milestone
 
-**M5 — Complete sanitization & privacy enforcement.** COMPLETE and verified
-(see §9c and `docs/m5-sanitization.md`).
+**M6 — agent loop, action bridge, firewall seam, backend planner.** COMPLETE and
+verified (see §9f). The two integration points left open by §9c are now closed:
+(1) the loop assembles a `RemoteAgentRequest` from `enforcePrivacy` output and (2)
+every outbound payload passes the implemented fail-closed firewall
+(`extension/src/firewall/inspect.ts`).
 
-The next milestone is **not started** and, per CLAUDE.md §24, will not begin
-until explicitly requested.
+The next milestone is **not started** and, per CONTRIBUTING.md §24, will not begin
+until explicitly requested. Natural follow-ups, in rough order:
 
-Entry points the next milestone builds on:
-- `enforcePrivacy()` from `extension/src/sanitizer` — returns an
-  `EnforcementResult` (`sanitizedText`, `aliases`, `visualMasks`, per-finding
-  `findings`, and the `blocked`/`restricted`/`enforced` gates). See
-  `docs/m5-sanitization.md`.
-- The `LocalVault` (`extension/src/vault/index.ts`) holds the alias→value
-  mapping in memory only; it MUST stay local (CLAUDE.md §5 Rule 3).
-- `RemoteAgentRequest` in `extension/src/types/contracts.ts` — the sanitized
-  payload shape a downstream milestone assembles from an `EnforcementResult`.
-
-Two integration points remain open (documented, not yet built): (1) the side
-panel now calls `enforcePrivacy()` on every scan and honours its fail-closed
-`blocked` gate in the UI (see §9d) — but no code yet assembles a
-`RemoteAgentRequest` from the `EnforcementResult` for an actual outbound send;
-(2) the outbound privacy firewall (CLAUDE.md §5 Rule 6/7) is the final boundary
-and is still pending. Both uphold the same invariant: raw protected values never
-reach a remote payload, a log, or telemetry.
+1. **S4 — remote provider adapter:** Ollama (`qwen2.5vl:7b`) behind
+   `AGENT_PROVIDER=remote` (the 501 seam in `backend/fastapi/app/agent.py`),
+   JSON-schema-constrained actions, retries/timeouts; e2e against the live backend.
+2. **M7 — telemetry + leakage sentinel:** persist `PrivacyEvent`s (structured,
+   value-free), benchmark harness over `benchmark/` pages, canary reports.
+3. **Loop hardening:** visual/OCR signals in per-step enforcement, planner-driven
+   SCROLL for below-fold controls, allowlisted navigation coverage in e2e.

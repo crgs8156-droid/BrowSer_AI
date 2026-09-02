@@ -127,7 +127,7 @@ export interface VisualPerceptionResult {
   /**
    * Genuine, categorized findings from an OCR/vision content analyzer, when one is
    * registered. EMPTY when no engine is available (`contentStatus: 'not_available'`)
-   * — never fabricated (CLAUDE.md §22). Each finding carries document-absolute
+   * — never fabricated (CONTRIBUTING.md §22). Each finding carries document-absolute
    * geometry and its originating region id so M4/M5 can act on it independently.
    */
   contentFindings?: VisualContentFinding[];
@@ -216,7 +216,7 @@ export type PolicySignalCategory =
 
 /**
  * Signals handed to the policy engine. Every field is optional; absence is
- * treated as "unknown", never as "safe" (CLAUDE.md §5 Rule 7 — fail closed).
+ * treated as "unknown", never as "safe" (CONTRIBUTING.md §5 Rule 7 — fail closed).
  */
 export interface PolicySignals {
   /** PII/DOM entities from M1/M2. `undefined` ⇒ detection did not run. */
@@ -331,11 +331,46 @@ export interface PrivacyEvent {
  */
 export interface RemoteAgentRequest {
   taskObjective: string;
-  sanitizedPageStructure: unknown[];
+  /** Current page origin ONLY (never the full URL — path/query can carry content). */
+  pageOrigin?: string;
+  sanitizedPageStructure: SanitizedNode[];
   sanitizedVisibleText: string;
   aliases: { alias: string; category: SensitiveCategory }[];
   availableActions: AgentActionKind[];
   policy: { privacyMode: string; navigationAllowlist: string[] };
+}
+
+// ---------------------------------------------------------------------------
+// M6 — Agent, structured actions, and the sanitized page snapshot.
+//
+// The agent loop observes the page ONLY through sanitized structures: a
+// `SanitizedNode` carries field semantics (tag/type/label/name) and whether a
+// field is filled — never a raw value. Labels/names are included only when the
+// local PII detector finds nothing in them (fail closed); the privacy firewall
+// re-scans the whole serialized request before any transmission.
+// ---------------------------------------------------------------------------
+
+/** One form/control on the page, as seen by the REMOTE planner. Never a raw value. */
+export interface SanitizedNode {
+  tag: 'input' | 'textarea' | 'select' | 'button';
+  /** Deterministic CSS selector computed by the content script; the ONLY way to target it. */
+  selector: string;
+  /** For inputs/selects: the declared type (`text`, `email`, `password`, …). */
+  inputType?: string;
+  /** Accessible label text; present ONLY when detection found nothing sensitive in it. */
+  label?: string;
+  /** Field name attribute; gated exactly like `label`. */
+  name?: string;
+  /** True when the field currently holds a value (the value itself never crosses). */
+  filled: boolean;
+  disabled: boolean;
+  /**
+   * True when the control sits below the current viewport fold at scan time. Geometry
+   * is not content (coordinates are non-sensitive), and it lets a planner emit a
+   * bounded SCROLL before interacting — recomputed every observation, so the page
+   * state after scrolling is still the loop's only memory.
+   */
+  belowFold?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -394,7 +429,7 @@ export interface FindingEnforcement {
  * The result of one enforcement pass. Everything here is safe to inspect and
  * hand toward the remote boundary — it contains aliases, geometry, and
  * dispositions only. The caller MUST fail closed and refuse to send whenever
- * `blocked`, `restricted`, or `!enforced` (CLAUDE.md §5 Rule 7): the firewall
+ * `blocked`, `restricted`, or `!enforced` (CONTRIBUTING.md §5 Rule 7): the firewall
  * (M7) remains the final boundary.
  */
 export interface EnforcementResult {
@@ -402,7 +437,7 @@ export interface EnforcementResult {
    * Visible text with every recoverable raw value replaced by its alias. Empty
    * unless the page is fully safe (`enforced && !blocked && !restricted`): when
    * M5 cannot certify the page it withholds cleartext rather than risk emitting
-   * an unidentified raw value (CLAUDE.md §5 Rule 7 — fail closed).
+   * an unidentified raw value (CONTRIBUTING.md §5 Rule 7 — fail closed).
    */
   sanitizedText: string;
   /** Alias directory for the remote request — types only, never values. */

@@ -6,7 +6,7 @@
 // text is covered (USER_EMAIL_2 sits in section 3); (3) a critical credential blocks
 // outbound; (4) NO raw value and NO raw page heading ever reach the panel (no dump).
 //
-// SYNTHETIC DATA ONLY (CLAUDE.md §15) — see tests/fixtures/sensitive-sample.html.
+// SYNTHETIC DATA ONLY (CONTRIBUTING.md §15) — see tests/fixtures/sensitive-sample.html.
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

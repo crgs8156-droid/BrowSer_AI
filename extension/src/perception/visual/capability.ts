@@ -1,6 +1,6 @@
 // Execution-capability detection for M3.
 //
-// WebGPU is a preference, never a requirement (CLAUDE.md §10: WebGPU ↓ CPU fallback).
+// WebGPU is a preference, never a requirement (CONTRIBUTING.md §10: WebGPU ↓ CPU fallback).
 // The returned list is ordered by preference and always ends with 'cpu', so a
 // provider can always run somewhere. Detection is feature-based — we never infer
 // capabilities from user-agent strings, which keeps this working across

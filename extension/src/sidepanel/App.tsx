@@ -8,15 +8,20 @@
 
 import { useState } from 'react';
 import { VisualStatus } from './VisualStatus';
+import { AgentTask } from './AgentTask';
 import { detectPII } from '../perception/pii';
 import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
 import { enforcePrivacy } from '../sanitizer';
+import { toSensitiveCategory } from '../sanitizer/alias';
 import { createLocalVault } from '../vault';
 import type { PolicySignals, RiskSeverity } from '../types/contracts';
 import { SCAN_PAGE, SCROLL_VIEWPORT, type ScanPageResponse, type ScrollViewportResponse } from '../types/messages';
 import { buildScanSummary, type ScanFindingView, type ScanSummary } from '../scan';
 import { ocrTrace } from '../diag/ocr-trace';
+import { recordEvent, sessionTelemetry } from './telemetry-session';
+import { TelemetryPanel } from './TelemetryPanel';
+import { recordVisualStats } from './visual-stats';
 import { captureViaBackground } from './capture';
 
 type ScanState = 'idle' | 'scanning' | 'done' | 'restricted' | 'error';
@@ -97,20 +102,37 @@ export function App() {
       });
 
       // M2 (PII) + M3 (visual) — detection over the whole page, all regions.
+      // M7: stage timings + value-free privacy events feed the telemetry dashboard.
+      const scanStartedAt = performance.now();
+
+      const detectStartedAt = performance.now();
       const entities = detectPII(pageText);
+      sessionTelemetry.timing('scan.detect', performance.now() - detectStartedAt);
+      for (const category of new Set(entities.map((entity) => entity.category))) {
+        recordEvent({ type: 'DETECTED', entityCategory: toSensitiveCategory(category) });
+      }
+
+      const visualStartedAt = performance.now();
       const visual = await getVisualService().run(snapshot);
+      sessionTelemetry.timing('scan.visual', performance.now() - visualStartedAt);
+      recordVisualStats(visual);
 
       // M4 (policy) + M5 (enforce): alias every recoverable value into the LOCAL vault,
       // mask visual regions, and produce a structured, safe result. `redact` runs on the
       // real page text here; the vault (local, in memory) holds the alias↔value mapping.
       const signals: PolicySignals = { entities, visual, restricted: false };
       const vault = createLocalVault();
+      const enforceStartedAt = performance.now();
       const result = await enforcePrivacy({
         signals,
         pageText,
         sessionId: 'scan-session',
         vault,
       });
+      sessionTelemetry.timing('scan.enforce', performance.now() - enforceStartedAt);
+      sessionTelemetry.timing('scan.total', performance.now() - scanStartedAt);
+      if (result.aliases.length > 0) recordEvent({ type: 'SANITIZED' });
+      if (result.blocked) recordEvent({ type: 'BLOCKED' });
 
       // Enforcement produced structured findings. Counts and gates only — no raw values.
       ocrTrace('PRIVACY_FINDINGS', {
@@ -218,6 +240,8 @@ export function App() {
       )}
 
       <VisualStatus />
+      <AgentTask />
+      <TelemetryPanel />
     </main>
   );
 }

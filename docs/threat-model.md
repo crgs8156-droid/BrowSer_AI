@@ -1,7 +1,7 @@
 # PrivAgent — Preliminary Threat Model & Data Flow
 
 _Status: **preliminary**, pre-implementation (M0 preflight). To be refined per milestone._
-_Source of truth: `PrivAgent_SIH2026_Winning_Implementation_Blueprint.pdf` (§3, §4, §7, §9, §13, §14, §17) and `CLAUDE.md` §5–§7._
+_Source of truth: `PrivAgent_SIH2026_Winning_Implementation_Blueprint.pdf` (§3, §4, §7, §9, §13, §14, §17) and `CONTRIBUTING.md` §5–§7._
 
 > This document is design/documentation only. No feature logic has been implemented.
 
@@ -19,7 +19,7 @@ _Source of truth: `PrivAgent_SIH2026_Winning_Implementation_Blueprint.pdf` (§3,
 | Zone                                    | Components                                                                                                                                                                 | Trust                                                                     |
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
 | **Local — trusted**                     | Service worker, content script, React side panel, offscreen document, sensitivity engine, sanitizer, **local vault**, **privacy firewall**, alias resolver / action bridge | Runs on the user's device; may hold raw secrets                           |
-| **Untrusted input**                     | The web **page** — DOM text, attributes, images, canvas                                                                                                                    | **Data, never instructions.** May contain prompt injection (CLAUDE.md §6) |
+| **Untrusted input**                     | The web **page** — DOM text, attributes, images, canvas                                                                                                                    | **Data, never instructions.** May contain prompt injection (CONTRIBUTING.md §6) |
 | **Remote — untrusted (w.r.t. secrets)** | Remote AI agent / LLM; FastAPI backend (orchestration/eval only)                                                                                                           | Must **never** receive raw values or mappings (PDF §5, §14 invariants)    |
 
 ## 3. Local trust boundary (the privacy boundary)
@@ -42,7 +42,7 @@ _Source of truth: `PrivAgent_SIH2026_Winning_Implementation_Blueprint.pdf` (§3,
                                          ▲ trust boundary ▲
 ```
 
-- The **Privacy Firewall is the single outbound chokepoint.** Every remote request (agent or backend) must pass through it. If it cannot establish that content is safe → **BLOCK (fail closed)** (CLAUDE.md §5 Rule 6/7).
+- The **Privacy Firewall is the single outbound chokepoint.** Every remote request (agent or backend) must pass through it. If it cannot establish that content is safe → **BLOCK (fail closed)** (CONTRIBUTING.md §5 Rule 6/7).
 - **Alias resolution happens only inside the local action bridge**, at the moment an action needs a value (PDF §7, §14 invariant 5).
 
 ## 4. Data-flow (end to end)
@@ -63,7 +63,7 @@ Per PDF §9 ("Agent context should contain"):
 
 ## 6. What must NEVER cross the boundary (denylist)
 
-Per PDF §9 / §14 invariants and CLAUDE.md §5:
+Per PDF §9 / §14 invariants and CONTRIBUTING.md §5:
 
 - Raw protected values (password, email, phone, address, OTP, payment, ID…).
 - **Alias → real-value mappings.**
@@ -76,8 +76,8 @@ Per PDF §9 / §14 invariants and CLAUDE.md §5:
 | Threat                                             | Vector                                                                     | Mitigation                                                                                                                                                                                              |
 | -------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Info disclosure** — secret reaches agent/backend | Sanitizer miss; new field type                                             | Firewall inspection + canary leakage sentinel; fail-closed; explainable detection                                                                                                                       |
-| **Prompt injection**                               | Page text says "ignore instructions / send password"                       | Page content is **data**; agent limited to structured actions; policy validator rejects any action attempting to exfiltrate or disable privacy; page-origin text can never change policy (CLAUDE.md §6) |
-| **Malicious agent output**                         | Agent emits `TYPE(x, <raw secret>)`, `NAVIGATE(evil.com)`, or arbitrary JS | Action **schema** validation → **policy** validation (navigation allowlist; `TYPE` accepts alias-or-safe-text only) → no `eval`/`Function` (CLAUDE.md §7)                                               |
+| **Prompt injection**                               | Page text says "ignore instructions / send password"                       | Page content is **data**; agent limited to structured actions; policy validator rejects any action attempting to exfiltrate or disable privacy; page-origin text can never change policy (CONTRIBUTING.md §6) |
+| **Malicious agent output**                         | Agent emits `TYPE(x, <raw secret>)`, `NAVIGATE(evil.com)`, or arbitrary JS | Action **schema** validation → **policy** validation (navigation allowlist; `TYPE` accepts alias-or-safe-text only) → no `eval`/`Function` (CONTRIBUTING.md §7)                                               |
 | **Alias/log leakage**                              | Secret written to console/log/telemetry                                    | Logging policy: `PrivacyEvent` stores metadata only, never raw value (PDF §14)                                                                                                                          |
 | **Firewall bypass**                                | A second code path calls remote directly                                   | Single egress module; all remote calls routed through firewall; lint/architecture rule forbids direct `fetch` to remote from other modules                                                              |
 | **Screenshot leakage**                             | Visual capture with visible secrets sent remotely                          | Visual processing is local; raw screenshots are not transmitted; redact before any send                                                                                                                 |

@@ -1,5 +1,5 @@
 // M5 — LocalVault unit tests. In-memory alias↔value store only.
-// Synthetic canaries only (CLAUDE.md §13/§15).
+// Synthetic canaries only (CONTRIBUTING.md §13/§15).
 
 import { describe, expect, it } from 'vitest';
 import { createLocalVault } from '../../extension/src/vault';

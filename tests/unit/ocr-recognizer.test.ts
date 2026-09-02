@@ -5,7 +5,7 @@
 // this suite does NOT attempt to fake recognition — it verifies the ONE thing that
 // is deterministic here: when the extension asset context is absent, the recognizer
 // throws a tagged OCR_ENGINE_UNAVAILABLE error rather than returning fabricated text
-// (requirement B, CLAUDE.md §22). Live recognition is verified manually in Chrome.
+// (requirement B, CONTRIBUTING.md §22). Live recognition is verified manually in Chrome.
 
 import { describe, expect, it } from 'vitest';
 import {

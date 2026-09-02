@@ -1,21 +1,8 @@
-import type { RemoteAgentRequest } from '../types/contracts';
+// M6/M7 seam — privacy firewall public surface.
+//
+// `createPrivacyFirewall` is the single outbound boundary factory (CONTRIBUTING.md §5
+// Rule 6). The implementation lives in `./inspect` so this barrel stays the stable
+// import point and the pure logic stays testable in isolation.
 
-// Privacy firewall (blueprint §7, CLAUDE.md §5): the single outbound boundary.
-// Every remote request passes through inspect(). If safety cannot be established → FAIL CLOSED.
-// Implemented in M7.
-export interface FirewallVerdict {
-  allowed: boolean;
-  reason: string;
-}
-
-export interface PrivacyFirewall {
-  inspect(_request: RemoteAgentRequest): Promise<FirewallVerdict>;
-}
-
-export function createPrivacyFirewall(): PrivacyFirewall {
-  return {
-    inspect() {
-      throw new Error('PrivAgent: PrivacyFirewall.inspect not implemented (M7).');
-    },
-  };
-}
+export type { FirewallVerdict, PrivacyFirewall } from './inspect';
+export { createPrivacyFirewall } from './inspect';

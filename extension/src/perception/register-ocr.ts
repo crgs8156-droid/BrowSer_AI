@@ -10,7 +10,7 @@
 //
 // Tests never import this module — they register a FAKE recognizer instead, so unit
 // and integration runs stay fast, deterministic, and network-free while production
-// uses the real engine (CLAUDE.md §12, requirement I).
+// uses the real engine (CONTRIBUTING.md §12, requirement I).
 
 import { registerOcrRecognizer } from './ocr';
 import { createTesseractRecognizer } from './ocr/tesseract';

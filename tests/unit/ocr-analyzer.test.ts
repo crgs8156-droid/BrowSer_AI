@@ -1,7 +1,7 @@
 // Unit tests for the OCR → sensitivity content analyzer (extension/src/perception/
 // visual/ocr-analyzer.ts). A FAKE OcrRecognizer is injected via the OCR registry so
 // these run fast, offline, and deterministically — production uses the real
-// Tesseract recognizer (CLAUDE.md §12, requirement I). Raw canary values only.
+// Tesseract recognizer (CONTRIBUTING.md §12, requirement I). Raw canary values only.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createOcrContentAnalyzer } from '../../extension/src/perception/visual/ocr-analyzer';

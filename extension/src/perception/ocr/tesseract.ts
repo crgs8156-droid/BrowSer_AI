@@ -4,7 +4,7 @@
 // Everything runs locally: the worker script, the wasm core, and the English
 // language data are all bundled into the extension (extension/public/ocr/**) and
 // loaded from `chrome.runtime.getURL(...)` — NEVER from a CDN or any network origin
-// (CLAUDE.md §5, §9). No screenshot, pixel buffer, or recognized text ever leaves
+// (CONTRIBUTING.md §5, §9). No screenshot, pixel buffer, or recognized text ever leaves
 // the device.
 //
 // LAZINESS: the ~16 MB wasm/lang assets and the worker are not touched until the
@@ -12,7 +12,7 @@
 //
 // FAIL HONEST: if the worker/wasm/lang cannot load, `recognize()` throws an Error
 // tagged `OCR_ENGINE_UNAVAILABLE`. The content analyzer maps that to a `failed`
-// status — we never fabricate a transcription (CLAUDE.md §22).
+// status — we never fabricate a transcription (CONTRIBUTING.md §22).
 
 import type { OcrImage, OcrRecognizer, OcrResult } from './index';
 

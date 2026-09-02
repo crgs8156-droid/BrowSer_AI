@@ -27,7 +27,7 @@ export function registerVisualPerceptionMessages(): void {
 
       // `tab.url` is only readable where we hold host permissions, so an empty URL
       // means "cannot establish that this page is operable" → treat as restricted.
-      // Fail closed (CLAUDE.md §5 Rule 7).
+      // Fail closed (CONTRIBUTING.md §5 Rule 7).
       if (isRestrictedUrl(activeTab.url ?? '')) {
         sendResponse({ restricted: true } satisfies VisualCandidatesResponse);
         return;

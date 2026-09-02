@@ -3,7 +3,7 @@
 // Drives the REAL enforcement orchestrator (which internally calls the REAL M4
 // `decidePolicyReport`) and asserts on what it actually DID to each finding —
 // not merely that it ran. Covers the 16 required M5 scenarios, each labelled.
-// Every value is synthetic (CLAUDE.md §13/§15).
+// Every value is synthetic (CONTRIBUTING.md §13/§15).
 
 import { describe, expect, it } from 'vitest';
 import { enforcePrivacy } from '../../extension/src/sanitizer';

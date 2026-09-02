@@ -2,7 +2,7 @@ import type { AliasRecord } from '../types/contracts';
 
 // Local identity vault (blueprint §6/§7). Stores alias↔value mappings ON-DEVICE
 // ONLY, in memory — never in chrome.storage, localStorage, IndexedDB, a file, a
-// log, or any remote payload (CLAUDE.md §5 Rule 3/4). The mapping is the most
+// log, or any remote payload (CONTRIBUTING.md §5 Rule 3/4). The mapping is the most
 // sensitive artefact in the system: it is the one place a raw value sits beside
 // its alias, so it lives only for the lifetime of the extension context and is
 // wiped per session by `clearSession`.

@@ -10,7 +10,7 @@
 //                             for every applicable finding/region, so a later
 //                             sanitization pass (M5) can act on each region.
 //
-// Design rules (CLAUDE.md §5, §16, §22):
+// Design rules (CONTRIBUTING.md §5, §16, §22):
 //   - Fail closed. A missing, unavailable, or malformed signal never yields
 //     ALLOW. Absence of evidence is not evidence of safety.
 //   - No raw values escape. Decisions are built from category tags, counts, and

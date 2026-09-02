@@ -84,3 +84,74 @@ export function detectPII(text: string): SensitiveEntity[] {
 
   return entities;
 }
+
+/**
+ * Label-evidence extraction (blueprint §5: sensitivity = f(pattern evidence, DOM input
+ * type, label/nearby text, page context)). Complements the pattern detectors above for
+ * the categories that have NO reliable pattern — person names and postal addresses —
+ * and catches credential-like values whose keyword is separated by whitespace.
+ *
+ * Only STRICT "Keyword: value" / "Keyword value" shapes are classified; free text
+ * without a label is never guessed. Values stay LOCAL in the returned entities
+ * exactly like every other `SensitiveEntity.text`.
+ */
+export function detectLabeledValues(text: string): SensitiveEntity[] {
+  if (!text || typeof text !== 'string') return [];
+
+  const entities: SensitiveEntity[] = [];
+
+  // Person names / patients / students introduced by a label. Names contain no
+  // commas — the value ends at a section separator (·), a comma, a sentence dot
+  // followed by space, or EOL.
+  const NAME_LABELED =
+    /\b(?:full\s+name|name|patient|student)\s*[:-]\s*([^\n·,]{3,60}?)(?=\s*[·,]|\.\s|\n|$)/gi;
+  for (const match of text.matchAll(NAME_LABELED)) {
+    const value = match[1]?.trim();
+    if (!value || value.length < 3) continue;
+    const keyword = match[0].split(/[:-]/)[0]?.trim().toLowerCase() ?? '';
+    entities.push({
+      id: `labeled-${keyword}-${match.index}`,
+      category: 'NAME',
+      confidence: 0.8,
+      reasons: [`Label evidence: "${keyword}"`],
+      source: 'DOM',
+      text: value,
+    } as unknown as SensitiveEntity);
+  }
+
+  // Postal addresses introduced by a label — commas are legitimate inside an address.
+  const ADDRESS_LABELED =
+    /\baddress\s*[:-]\s*([^\n·]{3,80}?)(?=\s*[·\n]|\.\s|\n|$)/gi;
+  for (const match of text.matchAll(ADDRESS_LABELED)) {
+    const value = match[1]?.trim();
+    if (!value || value.length < 3) continue;
+    entities.push({
+      id: `labeled-address-${match.index}`,
+      category: 'ADDRESS',
+      confidence: 0.8,
+      reasons: ['Label evidence: "address"'],
+      source: 'DOM',
+      text: value,
+    } as unknown as SensitiveEntity);
+  }
+
+  // Credential-like values whose keyword is followed by a colon OR whitespace — the
+  // pattern-based CREDENTIAL_REGEX above requires [:=], missing shapes like
+  // "api_key BENCH_KEY_001" or "Access code: BENCH_SECRET_001".
+  const CREDENTIAL_LABELED =
+    /\b(?:api[_-]?key|access[_-]?token|token|secret|password|passwd|key|code|otp)\s*[:=\s]\s*["']?([A-Za-z0-9\-_.~+/]{6,})["']?/gi;
+  for (const match of text.matchAll(CREDENTIAL_LABELED)) {
+    const value = match[1];
+    if (!value || value.length < 6) continue;
+    entities.push({
+      id: `labeled-credential-${match.index}`,
+      category: 'CREDENTIAL',
+      confidence: 0.9,
+      reasons: ['Label evidence: credential keyword'],
+      source: 'DOM',
+      text: value,
+    } as unknown as SensitiveEntity);
+  }
+
+  return entities;
+}

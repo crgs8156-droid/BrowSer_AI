@@ -4,7 +4,7 @@
 //
 // HONESTY IS THE DEFAULT. No OCR/vision engine is bundled at M3/M5. Until one is
 // registered, `resolveVisualContentAnalyzer()` returns an analyzer that ALWAYS reports
-// `not_available` and returns zero findings — it never invents a detection (CLAUDE.md
+// `not_available` and returns zero findings — it never invents a detection (CONTRIBUTING.md
 // §22). This mirrors `providers/registry.ts`; to plug in a real engine later, call
 // `registerVisualContentAnalyzer()` once at startup with a factory that dynamically
 // imports the heavy code. No call site in the pipeline needs to change.

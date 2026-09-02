@@ -173,7 +173,7 @@ does not exist.
 ## 6. Fail-closed behaviour
 
 M5 certifies a page as safe only when it can actually establish safety
-(CLAUDE.md §5 Rule 7):
+(CONTRIBUTING.md §5 Rule 7):
 
 - `blocked` — true when the page-level decision is `BLOCK` **or** any finding's
   action is `BLOCK` (e.g. a critical credential).
@@ -208,13 +208,13 @@ Enforced and covered by automated tests (`tests/unit/enforce.test.ts`,
   `console.*`, `fetch`, `XMLHttpRequest`, `WebSocket`, or `sendBeacon` calls
   (verified by a source scan that strips comments first), and running every
   enforcement branch produces no console output and opens no network channel.
-- **Synthetic canaries only** are used in tests (CLAUDE.md §13/§15).
+- **Synthetic canaries only** are used in tests (CONTRIBUTING.md §13/§15).
 
 ---
 
 ## 8. What M5 does NOT claim
 
-Honesty boundaries (CLAUDE.md §6, and the SIH alignment rule):
+Honesty boundaries (CONTRIBUTING.md §6, and the SIH alignment rule):
 
 - M5 protects only what M1–M4 **actually observed**. It makes no claim of 100%
   detection accuracy and cannot protect content that was never detected.
@@ -268,7 +268,7 @@ M5 leaves two integration points open, both documented and not yet built:
    `enforcePrivacy`, honour its `blocked` / `restricted` / `enforced` gates, and
    assemble a `RemoteAgentRequest` from the `EnforcementResult`
    (`sanitizedText` → `sanitizedVisibleText`, `aliases` → `aliases`).
-2. **Outbound privacy firewall.** The final outbound boundary (CLAUDE.md §5
+2. **Outbound privacy firewall.** The final outbound boundary (CONTRIBUTING.md §5
    Rule 6/7) that every remote request must pass through, failing closed when
    safety cannot be established.
 

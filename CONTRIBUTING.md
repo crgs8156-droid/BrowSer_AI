@@ -1,4 +1,4 @@
-# PrivAgent — Claude Code Project Instructions
+# PrivAgent — Engineering Rules & Contribution Guide
 
 ## 1. PROJECT
 

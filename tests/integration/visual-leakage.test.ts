@@ -4,7 +4,7 @@
 // produced by M3 CANNOT flow out of the local pipeline — not to the network, not to
 // logs, not into the structured result that later milestones consume.
 //
-// Synthetic canaries only (CLAUDE.md §13/§15). If a canary escapes, these fail.
+// Synthetic canaries only (CONTRIBUTING.md §13/§15). If a canary escapes, these fail.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readFileSync, readdirSync, statSync } from 'node:fs';

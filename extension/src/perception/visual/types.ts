@@ -75,7 +75,7 @@ export type VisualProviderFactory = () => VisualProvider | Promise<VisualProvide
 // sensitive value a region contains (category + geometry + optional text), distinct
 // from the coarse structural `VisualProvider` above. There is NO engine bundled at
 // M3/M5: the default analyzer returns `not_available` rather than pretending
-// (CLAUDE.md §22). The interface is ready for a real local engine (ONNX/OCR) to be
+// (CONTRIBUTING.md §22). The interface is ready for a real local engine (ONNX/OCR) to be
 // registered via `content-analyzer.ts` with no call-site change.
 // ---------------------------------------------------------------------------
 

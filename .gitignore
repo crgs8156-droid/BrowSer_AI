@@ -38,3 +38,6 @@ Thumbs.db
 .idea/
 .vscode/
 .aider*
+dist-firefox/
+ci-logs*.txt
+e2e-logs*.txt
