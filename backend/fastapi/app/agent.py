@@ -193,6 +193,11 @@ class RemotePlannerStub:
 
 def get_provider() -> Planner:
     name = os.environ.get("AGENT_PROVIDER", "deterministic")
+    if name == "gemini":
+        # Lazy import: the offline deterministic default must work without the SDK.
+        from .gemini_provider import create_gemini_provider
+
+        return create_gemini_provider()
     if name == "remote":
         return RemotePlannerStub()
     return DeterministicPlanner()

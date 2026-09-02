@@ -1268,6 +1268,55 @@ Three real defects were found and fixed while proving this:
 
 ---
 
+## 9l. M8 — Gemini Flash provider on the AGENT_PROVIDER seam
+
+_Added 2026-09-02._
+
+### Scope
+
+Wired Gemini Flash into the backend `AGENT_PROVIDER` seam: `AGENT_PROVIDER=gemini`
+selects `GeminiProvider` (default model `gemini-2.0-flash`, overridable via
+`GEMINI_MODEL`; key via `GEMINI_API_KEY`). The offline `deterministic` planner remains
+the default and requires no key — CI passes without any API credentials.
+
+### Design decisions
+
+- **Lazy SDK import**: `agent.py` imports the provider only when `gemini` is selected,
+  so the deterministic default never depends on `google-genai`.
+- **Native structured JSON**: Gemini `response_schema=PlanResult` +
+  `response_mime_type="application/json"` guarantee valid JSON without markdown.
+- **Contract preserved**: the provider adapts the LLM's single `{action, done, reason}`
+  into the endpoint's `{"actions": [...]}` shape the extension expects (SCROLL
+  `direction: up|down` → signed `amount`). No existing test or the extension contract
+  changed.
+- **Fail-closed, defense-in-depth**:
+  - PRE-SCAN (endpoint, ALL providers): `taskObjective` + `sanitizedVisibleText`
+    scanned for raw email/phone/Luhn-card → HTTP 422.
+  - POST-SCAN (provider): model output `value` + `reason` scanned → HTTP 502 on a leak.
+  - API failure (rate limit/network) → HTTP 502 `llm_unavailable`.
+  - Missing `GEMINI_API_KEY` → HTTP 500 (raised on the planning path only, never /health).
+
+### Files
+
+- Added: `app/pii_scan.py`, `app/gemini_provider.py`, `tests/test_gemini_provider.py`
+- Modified: `app/agent.py` (seam), `app/main.py` (pre-scan + error mapping),
+  `requirements.txt` (`google-genai>=1.0`)
+
+### Validation — actually executed
+
+Backend `pytest -q`: **19 passed / 19** (10 existing incl. `test_plan.py` +
+`test_health.py` all green, +9 Gemini). Full repo gates: typecheck ✅ lint ✅
+vitest 342/342 ✅ bench 3/3 ✅ build ✅ e2e 24/24 ✅. Mocked client only — no real API calls.
+
+### Known limitations
+
+- Model output is only scanned for PATTERN-detectable PII (mirrors the extension
+  detector); undetectable free-text values are bounded by the client-side firewall.
+- No live-call integration test in CI (no key); verified via mocks.
+- Ollama (`AGENT_PROVIDER=remote`) remains the loud-501 seam (S4, postponed).
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CONTRIBUTING.md §22) — these were found while starting M3, not introduced by
