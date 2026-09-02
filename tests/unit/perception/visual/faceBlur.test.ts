@@ -19,7 +19,7 @@ function detectionRow(y1: number, x1: number, y2: number, x2: number): number[] 
 function sessionWithRows(rows: number[][]): FaceSessionLike {
   const output: OrtValueLike = { data: new Float32Array(rows.flat()), dims: [1, rows.length, 16] };
   return {
-    inputNames: ['input', 'conf_threshold', 'max_detections', 'iou_threshold'],
+    inputNames: ['image', 'conf_threshold', 'max_detections', 'iou_threshold'],
     run: vi.fn(async () => ({ selectedBoxes: output })),
   };
 }

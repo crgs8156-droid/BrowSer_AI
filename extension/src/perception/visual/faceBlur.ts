@@ -93,22 +93,38 @@ export interface FaceBlurEngineOptions {
 /** RGBA raster → NCHW [1, 3, 128, 128] Float32, RGB channels in [-1, 1]. */
 export function preprocessRaster(raster: BlurRaster): Float32Array {
   const output = new Float32Array(3 * MODEL_INPUT_EDGE * MODEL_INPUT_EDGE);
+  // Bilinear resize — the same interpolation the model exporter's notebook used
+  // (cv2.resize default). Nearest-neighbour downscaling loses the face detail
+  // BlazeFace needs and was measured to yield zero detections.
   const scaleX = raster.width / MODEL_INPUT_EDGE;
   const scaleY = raster.height / MODEL_INPUT_EDGE;
   for (let y = 0; y < MODEL_INPUT_EDGE; y++) {
-    // Nearest-neighbour source sampling: deterministic, allocation-free, and exactly
-    // reproducible in tests (bilinear interpolation adds nothing for detection).
-    const sourceY = Math.min(raster.height - 1, Math.floor(y * scaleY));
+    const sourceY = Math.min(raster.height - 1, Math.max(0, y * scaleY));
+    const y0 = Math.floor(sourceY);
+    const y1 = Math.min(raster.height - 1, y0 + 1);
+    const fy = sourceY - y0;
     for (let x = 0; x < MODEL_INPUT_EDGE; x++) {
-      const sourceX = Math.min(raster.width - 1, Math.floor(x * scaleX));
-      const sourceIndex = (sourceY * raster.width + sourceX) * 4;
+      const sourceX = Math.min(raster.width - 1, Math.max(0, x * scaleX));
+      const x0 = Math.floor(sourceX);
+      const x1 = Math.min(raster.width - 1, x0 + 1);
+      const fx = sourceX - x0;
+
+      const i00 = (y0 * raster.width + x0) * 4;
+      const i10 = (y0 * raster.width + x1) * 4;
+      const i01 = (y1 * raster.width + x0) * 4;
+      const i11 = (y1 * raster.width + x1) * 4;
+
       const channelStart = y * MODEL_INPUT_EDGE + x;
-      const red = raster.data[sourceIndex] ?? 0;
-      const green = raster.data[sourceIndex + 1] ?? 0;
-      const blue = raster.data[sourceIndex + 2] ?? 0;
-      output[channelStart] = red / 127.5 - 1.0; // R
-      output[MODEL_INPUT_EDGE * MODEL_INPUT_EDGE + channelStart] = green / 127.5 - 1.0; // G
-      output[2 * MODEL_INPUT_EDGE * MODEL_INPUT_EDGE + channelStart] = blue / 127.5 - 1.0; // B
+      for (const channel of [0, 1, 2]) {
+        const v00 = raster.data[i00 + channel] ?? 0;
+        const v10 = raster.data[i10 + channel] ?? 0;
+        const v01 = raster.data[i01 + channel] ?? 0;
+        const v11 = raster.data[i11 + channel] ?? 0;
+        const top = v00 * (1 - fx) + v10 * fx;
+        const bottom = v01 * (1 - fx) + v11 * fx;
+        const value = top * (1 - fy) + bottom * fy;
+        output[channel * MODEL_INPUT_EDGE * MODEL_INPUT_EDGE + channelStart] = value / 127.5 - 1.0;
+      }
     }
   }
   return output;
@@ -186,6 +202,16 @@ function pickInputName(inputNames: readonly string[], keyword: string): string |
 }
 
 /**
+ * Find the image input. The graph may name it `input` (PINTO-style) or `image`
+ * (MediaPipe conversion — the model actually in use). Matching ONLY by the keyword
+ * `input` silently missed `image` and made the engine return zero faces; both spellings
+ * are accepted, and the confidence/IoU/max-detection inputs are matched separately.
+ */
+function pickImageInput(inputNames: readonly string[]): string | undefined {
+  return inputNames.find((name) => /image|input/i.test(name));
+}
+
+/**
  * Default session factory (extension runtime): lazy ONNX WASM session over the
  * packaged model + runtime files. The real ORT session is wrapped into the minimal
  * `FaceSessionLike` shape so the engine logic stays runtime-agnostic and testable.
@@ -240,6 +266,7 @@ export function createFaceBlurEngine(options: FaceBlurEngineOptions = {}): FaceB
       sessionPromise = null;
       ocrTrace('FACE_BLUR_UNAVAILABLE', {
         reason: error instanceof Error ? error.name : 'UNKNOWN',
+        detail: error instanceof Error ? error.message.slice(0, 400) : '',
       });
       throw new Error('FACE_BLUR_UNAVAILABLE');
     }
@@ -251,7 +278,7 @@ export function createFaceBlurEngine(options: FaceBlurEngineOptions = {}): FaceB
         const session = await getSession();
 
         const feeds: Record<string, OrtValueLike> = {};
-        const imageInput = pickInputName(session.inputNames, 'input');
+        const imageInput = pickImageInput(session.inputNames);
         if (imageInput === undefined) throw new Error('FACE_BLUR_INPUT_MISSING');
         feeds[imageInput] = {
           data: preprocessRaster(raster),

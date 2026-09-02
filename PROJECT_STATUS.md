@@ -1237,12 +1237,30 @@ build plumbing. Zero remote calls.
 | E2E | `npm run e2e` | ✅ **23 passed / 23** |
 | Backend | `pytest -q` | ✅ 10 passed / 10 |
 
+### Runtime verification — NOW REAL (2026-09-02, same session as §9k)
+
+A dedicated e2e (`tests/e2e/face-detection.spec.ts`) renders a REAL face
+(`person.jpg`, the exact image the model exporter's own notebook used) and drives the
+full pipeline in headless Chromium: BlazeFace (ONNX WASM, on-device) **detected the
+face and blacked it out before OCR** — `faceStats.facesDetected >= 1`,
+`facesBlurred >= 1`, `contentStatus: 'ok'`. Measured, not inferred.
+
+Three real defects were found and fixed while proving this:
+1. **Partial ORT runtime copy**: ORT 1.29 dynamically imports the glue by runtime-
+   selected name (e.g. `ort-wasm-simd-threaded.jsep.mjs`); shipping only the base pair
+   failed with a "dynamically imported module" backend error. The build now copies
+   EVERY `ort-wasm*.{mjs,wasm}` variant.
+2. **Input-name matcher**: the model's image input is named `image`, not `input` — the
+   keyword matcher silently missed it and returned zero faces. `pickImageInput` now
+   accepts both spellings.
+3. **Nearest-neighbour downscale** lost face detail; bilinear interpolation (the
+   exporter's own `cv2.resize` default) is used.
+
 ### Known limitations
 
-- Face detection has NOT been verified against real faces in a browser yet (the model
-  file must be fetched first — sandbox network policy blocks the PINTO S3 host;
-  `scripts/fetch-blazeface.sh` handles both sources). The pipeline degrades to zero
-  faces, which is exactly what the current test runs observe.
+- A cartoon "synthetic face" is deliberately NOT used as the fixture (BlazeFace is
+  trained on real faces; claiming otherwise would be fabrication) — the fixture is a
+  real face photo.
 - The end-to-end model reports detections WITHOUT per-face scores (threshold + NMS are
   in-graph) — `facesDetected`/`facesBlurred` counts are the honest surface.
 - Page classifier sees DOM structure/text only; canvas-only page types are invisible to

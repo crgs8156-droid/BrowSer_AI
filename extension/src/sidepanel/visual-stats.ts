@@ -16,6 +16,8 @@ export interface VisualStatsSnapshot {
   contentStatus?: VisualContentStatus;
   categories: Partial<Record<SensitiveCategory, number>>;
   regionsProcessed: number;
+  /** M7.5 — faces found + blacked in the raster before OCR (counts only). */
+  faceStats?: { facesDetected: number; facesBlurred: number };
   capturedAt: number;
 }
 
@@ -34,6 +36,7 @@ export function recordVisualStats(result: VisualPerceptionResult): void {
     contentStatus: result.contentStatus,
     categories,
     regionsProcessed: result.metrics.regionsProcessed,
+    faceStats: result.faceStats,
     capturedAt: Date.now(),
   };
 }

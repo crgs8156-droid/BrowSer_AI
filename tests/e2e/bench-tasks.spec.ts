@@ -102,7 +102,6 @@ for (const page of PAGES) {
 
     const result = panel.getByTestId('agent-result');
     await expect(result).toBeVisible();
-    console.log('BENCH-DEBUG steps:', await panel.getByTestId('agent-steps').innerText());
     await expect(result).toContainText('Task completed');
 
     for (const [selector, value] of Object.entries(page.filled)) {

@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { crx } from '@crxjs/vite-plugin';
 import tailwindcss from '@tailwindcss/vite';
 import manifest from './extension/manifest.ts';
@@ -16,21 +16,27 @@ import manifest from './extension/manifest.ts';
  */
 function copyOnnxAssets() {
   return {
-    name: "copy-onnx-assets",
+    name: 'copy-onnx-assets',
     closeBundle() {
-      const ortSource = "node_modules/onnxruntime-web/dist";
-      const ortOut = "dist/ort";
+      const ortSource = 'node_modules/onnxruntime-web/dist';
+      const ortOut = 'dist/ort';
       mkdirSync(ortOut, { recursive: true });
-      for (const file of ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.mjs"]) {
+      // Ship EVERY ORT WASM runtime file (all variants + glues): ORT selects the glue
+      // at runtime (e.g. ort-wasm-simd-threaded.jsep.mjs), so a partial copy fails
+      // with a "dynamically imported module" backend error on some environments.
+      const ortFiles = readdirSync(ortSource).filter((file: string) =>
+        /^ort-wasm[\w.-]*\.(wasm|mjs)$/.test(file),
+      );
+      for (const file of ortFiles) {
         copyFileSync(`${ortSource}/${file}`, `${ortOut}/${file}`);
       }
-      const model = "extension/src/perception/visual/models/blazeface.onnx";
+      const model = 'extension/src/perception/visual/models/blazeface.onnx';
       if (existsSync(model)) {
-        const modelOut = "dist/models";
+        const modelOut = 'dist/models';
         mkdirSync(modelOut, { recursive: true });
         copyFileSync(model, `${modelOut}/blazeface.onnx`);
       } else {
-        console.warn("[privagent] blazeface.onnx not found — face detection disabled (pipeline continues)");
+        console.warn('[privagent] blazeface.onnx not found — face detection disabled (pipeline continues)');
       }
     },
   };
