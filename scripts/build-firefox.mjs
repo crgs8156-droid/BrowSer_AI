@@ -29,7 +29,7 @@ cpSync(dist, out, { recursive: true });
 const manifest = JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8'));
 
 const loader = readFileSync(join(out, manifest.background.service_worker), 'utf8');
-const imports = [...loader.matchAll(/import\s+['\"]([^'\"]+)['"];?/g)].map((m) => m[1]);
+const imports = [...loader.matchAll(/import\s+['"]([^'"]+)["'];?/g)].map((m) => m[1]);
 if (imports.length !== 1) {
   throw new Error(
     `Firefox transform: expected exactly one import in the service-worker loader, found ${imports.length}. ` +
