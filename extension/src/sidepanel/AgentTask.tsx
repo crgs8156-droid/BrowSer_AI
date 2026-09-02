@@ -7,6 +7,7 @@
 
 import { useState } from 'react';
 import { runAgentLoop, type AgentRunResult, type AgentStepRecord } from '../agent';
+import { createRemoteHttpAgentGateway } from '../agent/remote';
 import { createActionBridge } from '../actions';
 import { createPrivacyFirewall } from '../firewall';
 import { createDeterministicPlanner } from '../agent/planner';
@@ -17,6 +18,9 @@ import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
 
 type RunState = 'idle' | 'running' | 'done';
+
+/** Backend planner endpoint (AGENT_PROVIDER=gemini on the FastAPI service). */
+const REMOTE_PLAN_ENDPOINT = 'http://localhost:8000/v1/plan';
 
 const STATUS_TEXT: Record<AgentRunResult['status'], string> = {
   completed: '✓ Task completed',
@@ -30,6 +34,7 @@ const STATUS_TEXT: Record<AgentRunResult['status'], string> = {
 
 export function AgentTask() {
   const [task, setTask] = useState('');
+  const [useGemini, setUseGemini] = useState(true);
   const [state, setState] = useState<RunState>('idle');
   const [result, setResult] = useState<AgentRunResult | null>(null);
 
@@ -50,18 +55,26 @@ export function AgentTask() {
       // ONE vault shared by enforcement (writes aliases) and the bridge (resolves them) —
       // the alias→value mapping lives only here, in memory, for this run.
       const vault = createLocalVault();
+      // ONE firewall shared by the loop gate and the remote gateway's pre-transmit gate.
+      const firewall = createPrivacyFirewall();
+      // Planner toggle: the remote (Gemini) gateway talks to the FastAPI backend over the
+      // SAME fail-closed firewall; the deterministic planner is the offline fallback.
+      const gateway = useGemini
+        ? createRemoteHttpAgentGateway({ endpoint: REMOTE_PLAN_ENDPOINT, firewall })
+        : createDeterministicPlanner();
+
       const runResult = await runAgentLoop({
         task,
         sessionId: `agent-${Date.now()}`,
         vault,
-        gateway: createDeterministicPlanner(),
+        gateway,
         navigationAllowlist: allowlist,
         bridge: createActionBridge({
           vault,
           policy: () => ({ ...DEFAULT_ACTION_POLICY, navigationAllowlist: [...getNavigationAllowlist()] }),
           onAliasResolved: (alias) => recordEvent({ type: 'ALIAS_RESOLVED', alias }),
         }),
-        firewall: createPrivacyFirewall(),
+        firewall,
         scan: () => chrome.runtime.sendMessage({ type: SCAN_PAGE }) as Promise<ScanPageResponse>,
       });
       const { stageMs } = runResult;
@@ -103,6 +116,18 @@ export function AgentTask() {
         onChange={(event) => setTask(event.target.value)}
         disabled={state === 'running'}
       />
+
+      <label className="mt-2 flex items-center gap-2 text-xs text-neutral-600">
+        <input
+          data-testid="use-gemini"
+          type="checkbox"
+          checked={useGemini}
+          onChange={(event) => setUseGemini(event.target.checked)}
+          disabled={state === 'running'}
+        />
+        Use Gemini AI Planner (localhost:8000)
+      </label>
+
       <button
         className="mt-2 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
         onClick={run}

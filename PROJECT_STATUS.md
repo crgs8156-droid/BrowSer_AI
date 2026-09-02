@@ -1317,6 +1317,38 @@ vitest 342/342 ✅ bench 3/3 ✅ build ✅ e2e 24/24 ✅. Mocked client only —
 
 ---
 
+## 9m. Side panel ↔ Gemini backend wiring (planner toggle)
+
+_Added 2026-09-02._
+
+### Scope
+
+`AgentTask.tsx` now offers a **Use Gemini AI Planner** checkbox (default ON). Checked → the
+agent loop uses `createRemoteHttpAgentGateway({ endpoint: 'http://localhost:8000/v1/plan',
+firewall })` (the FastAPI backend, `AGENT_PROVIDER=gemini` when a key is set). Unchecked →
+the offline deterministic planner. One firewall instance is shared by the loop gate and the
+gateway's pre-transmit gate.
+
+### Verification — actually executed
+
+- Remote path proven end-to-end with a throwaway probe (backend live at :8000 with the
+  deterministic provider as the offline stand-in — identical HTTP contract): the real
+  extension, toggle ON, completed a fill-and-submit task against the live endpoint, then the
+  probe was removed.
+- e2e offline specs (agent-task, bench-tasks ×4, below-fold, navigation, telemetry-panel)
+  now explicitly uncheck the toggle so CI stays offline/deterministic; agent-task asserts the
+  toggle defaults ON.
+- Gates: typecheck ✅ lint ✅ vitest 342/342 ✅ bench 3/3 ✅ build ✅ e2e **24/24** ✅ backend 19/19 ✅.
+
+### Known limitations
+
+- Live Gemini verification requires a `GEMINI_API_KEY` (backend, `AGENT_PROVIDER=gemini`)
+  — not exercised in CI; the HTTP contract is identical to the verified deterministic path.
+- Toggle state is per-panel-session (not persisted); localhost backend must be running for
+  the checked path, else the loop fails closed with `PLANNER_FAILED`.
+
+---
+
 ## 10. Corrections to earlier milestone claims
 
 Recorded for honesty (CONTRIBUTING.md §22) — these were found while starting M3, not introduced by

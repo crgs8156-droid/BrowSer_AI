@@ -98,6 +98,9 @@ for (const page of PAGES) {
     await panel.getByPlaceholder(/fill the form/).fill(page.task);
     // Same invariant as agent-task.spec: the web page, not the panel tab, must be active.
     await tab.bringToFront();
+    // The Gemini toggle defaults ON (demo mode); e2e runs offline, so select the
+    // deterministic planner explicitly.
+    await panel.getByTestId('use-gemini').uncheck();
     await panel.getByRole('button', { name: 'Run agent task' }).dispatchEvent('click');
 
     const result = panel.getByTestId('agent-result');

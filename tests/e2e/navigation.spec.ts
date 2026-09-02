@@ -57,6 +57,9 @@ test('agent navigates to the allowlisted origin, then fills and submits the form
     .getByPlaceholder(/fill the form/)
     .fill('open privagent.test and fill the form with my details and submit');
   await tab.bringToFront();
+  // The Gemini toggle defaults ON (demo mode); e2e runs offline, so select the
+  // deterministic planner explicitly.
+  await panel.getByTestId('use-gemini').uncheck();
   await panel.getByRole('button', { name: 'Run agent task' }).dispatchEvent('click');
 
   const result = panel.getByTestId('agent-result');

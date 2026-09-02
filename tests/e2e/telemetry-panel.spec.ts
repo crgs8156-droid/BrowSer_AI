@@ -38,6 +38,9 @@ test('telemetry dashboard fills from scan + agent run, never showing raw values'
   // 2 — an agent run adds alias resolutions, task result and agent.* stage timings.
   await panel.getByPlaceholder(/fill the form/).fill('fill the form with my details and submit');
   await tab.bringToFront();
+  // The Gemini toggle defaults ON (demo mode); e2e runs offline, so select the
+  // deterministic planner explicitly.
+  await panel.getByTestId('use-gemini').uncheck();
   await panel.getByRole('button', { name: 'Run agent task' }).dispatchEvent('click');
   await expect(panel.getByTestId('agent-result')).toContainText('Task completed');
 
