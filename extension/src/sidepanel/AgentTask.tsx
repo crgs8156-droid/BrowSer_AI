@@ -525,10 +525,12 @@ export function AgentTask() {
               style={{ width: 'auto', padding: '2px 12px', fontSize: 12 }}
               data-testid="nav-confirm-yes"
               onClick={() => {
+                const approvedUrl = pendingNav;
                 navResolver.current?.(true);
                 navResolver.current = null;
                 setPendingNav(null);
-                setLiveLog((prev) => [...prev, '\u{1F310} Navigation approved']);
+                // Logged ONLY after approval (never before): origin-only, never values.
+                setLiveLog((prev) => [...prev, `\u{1F310} ${originDisplay(approvedUrl ?? '')} added to session allowlist`]);
               }}
             >
               Yes

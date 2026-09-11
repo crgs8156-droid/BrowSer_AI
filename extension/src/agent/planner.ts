@@ -12,6 +12,7 @@
 
 import type { AgentAction, RemoteAgentRequest, SensitiveCategory, SanitizedNode } from '../types/contracts';
 import type { AgentGateway } from './index';
+import { extractServiceUrl } from './services';
 
 /** Category → field-name/label keywords the planner may match against. */
 const CATEGORY_FIELD_KEYWORDS: Readonly<Record<SensitiveCategory, readonly string[]>> = {
@@ -90,11 +91,11 @@ export function planDeterministic(request: RemoteAgentRequest): AgentAction[] {
   // one NAVIGATE — and only to an origin the LOCAL policy allowlists. The planner never
   // invents a URL: the target origin must come from the allowlist itself, and the loop
   // skips the action when the browser is already there (pageOrigin, origin-only).
-  const match = /\b(?:open|go to|navigate to|visit)\s+([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i.exec(
-    request.taskObjective,
-  );
-  if (match && request.pageOrigin !== undefined) {
-    const host = match[1]?.toLowerCase() ?? '';
+  // Host matching helper shared by the dotted-host rule (3a) and the bare service
+  // name rule (3b): allowlist entry whose hostname equals the named host or is a
+  // subdomain of it, with the browser on a different host.
+  const findNavigateTarget = (host: string): AgentAction[] | null => {
+    if (request.pageOrigin === undefined) return null;
     const target = request.policy.navigationAllowlist.find((entry) => {
       try {
         const hostname = new URL(entry).hostname;
@@ -103,14 +104,38 @@ export function planDeterministic(request: RemoteAgentRequest): AgentAction[] {
         return false;
       }
     });
-    if (target !== undefined) {
-      try {
-        if (new URL(request.pageOrigin).hostname !== new URL(target).hostname) {
-          return [{ action: 'NAVIGATE', url: target }];
-        }
-      } catch {
-        // malformed pageOrigin: never navigate on unknown context (fail closed)
+    if (target === undefined) return null;
+    try {
+      if (new URL(request.pageOrigin).hostname !== new URL(target).hostname) {
+        return [{ action: 'NAVIGATE', url: target }];
       }
+    } catch {
+      // malformed pageOrigin: never navigate on unknown context (fail closed)
+    }
+    return null;
+  };
+
+  // 3a — dotted host named in the task ("open gmail.com").
+  const match = /\b(?:open|go to|navigate to|visit)\s+([a-z0-9-]+(?:\.[a-z0-9-]+)+)/i.exec(
+    request.taskObjective,
+  );
+  if (match) {
+    const host = match[1]?.toLowerCase() ?? '';
+    const planned = findNavigateTarget(host);
+    if (planned !== null) return planned;
+  }
+
+  // 3b — bare service name ("open gmail"): resolve via KNOWN_SERVICES, then apply
+  // the same allowlist rule. The emitted URL is the allowlist entry (never the
+  // map value directly), and the loop's Part C gate still requires user approval
+  // for off-allowlist targets.
+  const serviceUrl = extractServiceUrl(request.taskObjective);
+  if (serviceUrl !== null) {
+    try {
+      const planned = findNavigateTarget(new URL(serviceUrl).hostname.toLowerCase());
+      if (planned !== null) return planned;
+    } catch {
+      // unparseable map value (should not happen): fall through to no action
     }
   }
 

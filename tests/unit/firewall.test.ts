@@ -99,6 +99,20 @@ describe('privacy firewall', () => {
     expect(verdict.allowed).toBe(true);
   });
 
+  it('rejects a chrome:// pageOrigin as malformed, allows undefined + empty arrays', async () => {
+    const firewall = createPrivacyFirewall();
+    const chromeOrigin = cleanRequest({ pageOrigin: 'chrome://new-tab-page' });
+    expect((await firewall.inspect(chromeOrigin)).reason).toBe('FIREWALL_MALFORMED');
+    // Navigation-only shape: no nodes, no aliases, blank text, undefined origin.
+    const navOnly = cleanRequest({
+      pageOrigin: undefined,
+      sanitizedPageStructure: [],
+      sanitizedVisibleText: '',
+      aliases: [],
+    });
+    expect(await firewall.inspect(navOnly)).toEqual({ allowed: true, reason: 'OK' });
+  });
+
   it('accepts ARIA-hosted nodes (div/span/a) and still rejects unknown tags', async () => {
     const firewall = createPrivacyFirewall();
     const aria = cleanRequest({
