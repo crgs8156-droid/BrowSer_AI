@@ -311,10 +311,20 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
     }
     setNavigationAllowlist(allowlist);
 
+    // Origin-only page context for the planner. Set ONLY for http(s) pages: other
+    // schemes (chrome://, about:, file:) have no meaningful origin and would fail
+    // the firewall's origin-only check with FIREWALL_MALFORMED, wrongly blocking
+    // valid navigation tasks from blank/new-tab pages. Absent ⇒ undefined, which
+    // the firewall skips and the backend treats as optional.
     let pageOrigin: string | undefined;
     if (observed.snapshot?.url) {
       try {
-        pageOrigin = new URL(observed.snapshot.url).origin;
+        const parsed = new URL(observed.snapshot.url);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          pageOrigin = parsed.origin;
+        } else {
+          pageOrigin = undefined;
+        }
       } catch {
         pageOrigin = undefined;
       }
