@@ -44,7 +44,7 @@ test('renders a concise multi-region summary and blocks on a critical credential
     'USER_PAYMENT_1',
     'USER_PASSWORD_1',
   ]) {
-    await expect(panel.getByText(alias, { exact: false })).toBeVisible();
+    await expect(panel.getByTestId('findings').getByText(alias, { exact: false })).toBeVisible();
   }
 
   // At least the five text findings above.

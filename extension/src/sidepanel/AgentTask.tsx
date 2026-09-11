@@ -20,6 +20,8 @@ import { formatAgentStep, formatTerminalLine, STEP_LOG_OPENERS } from './agent-s
 import { loadTaskState, shouldResumeTask } from '../agent/task-state';
 import { maskValue } from './reveal';
 import { getLastCloudPayload, getLastCloudPayloadMeta } from '../agent/remote';
+import { classifyFromStatus } from '../debug/errors';
+import { getTrace, startTrace, setTraceEnabled } from '../debug/trace';
 import {
   addTemplate,
   deleteTemplate,
@@ -62,6 +64,9 @@ export function AgentTask() {
   const [cloudSnapshot, setCloudSnapshot] = useState<import('../types/contracts').RemoteAgentRequest | null>(null);
   const [cloudMeta, setCloudMeta] = useState<{ at: number; bytes: number } | null>(null);
   const revealMapRef = useRef<Map<string, { value: string; category: string }>>(new Map());
+  const [debugMode, setDebugMode] = useState(false);
+  const [traceLines, setTraceLines] = useState<string[]>([]);
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [templates, setTemplates] = useState<TaskTemplate[]>(() => getDefaultTemplates());
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -82,6 +87,7 @@ export function AgentTask() {
     setState('running');
     setResult(null);
     setLiveLog([...STEP_LOG_OPENERS]);
+    if (debugMode) { startTrace(); setTraceLines([]); }
     setRevealRows([]);
     setRevealOpen(false);
     setUnmasked(new Set());
@@ -185,6 +191,7 @@ export function AgentTask() {
       } catch {
         // ignore
       }
+      if (debugMode) setTraceLines(getTrace().map((e) => e.formatted));
       const lines = runResult.steps.map(formatAgentStep);
       lines.push(formatTerminalLine(runResult.status, runResult.reason));
       setLiveLog((prev) => [...prev, ...lines].slice(-30));
@@ -207,6 +214,39 @@ export function AgentTask() {
       setTemplates(stored);
     });
   }, []);
+
+  useEffect(() => {
+    // Debug mode persist
+    try { void chrome.storage?.local?.get('debugMode').then((d: Record<string, unknown>) => { if (typeof d?.debugMode === 'boolean') { setDebugMode(d.debugMode as boolean); setTraceEnabled(d.debugMode as boolean); } }); } catch { /* ignore */ }
+  }, []);
+
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    // Lazy health check: never fire on initial panel load (smoke asserts zero
+    // console errors; a failed fetch logs ERR_CONNECTION_REFUSED at Chromium
+    // level before any JS catch runs). Fire only after the user changes mode
+    // to a backend-backed planner.
+    if (!didMountRef.current) { didMountRef.current = true; return; }
+    if (plannerMode === 'offline') { setBackendOnline(null); return; }
+    const check = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/health',
+          { signal: AbortSignal.timeout(2000) });
+        setBackendOnline(res.ok ? true : false);
+      } catch {
+        // Backend unreachable — expected when backend not running.
+        // Do NOT log to console (breaks smoke test).
+        setBackendOnline(false);
+      }
+    };
+    void check();
+  }, [plannerMode]);
+
+  useEffect(() => {
+    if (!debugMode || state !== 'running') return;
+    const id = setInterval(() => setTraceLines(getTrace().map((e) => e.formatted)), 500);
+    return () => clearInterval(id);
+  }, [debugMode, state]);
 
   const resumed = useRef(false);
   useEffect(() => {
@@ -364,6 +404,18 @@ export function AgentTask() {
         </label>
       </fieldset>
 
+      <div className="mt-1 flex items-center gap-1 text-xs" data-testid="backend-health">
+        {plannerMode === 'offline' ? (
+          <span>⚫ Offline mode selected (backend not needed)</span>
+        ) : backendOnline === null ? (
+          <span>⚪ Checking backend...</span>
+        ) : backendOnline ? (
+          <span>🟢 Backend online</span>
+        ) : (
+          <span>🔴 Backend offline — switch to Offline mode</span>
+        )}
+      </div>
+
       <button
         className="mt-2 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
         onClick={() => void run()}
@@ -462,6 +514,27 @@ export function AgentTask() {
             {result.reason !== undefined && result.status !== 'completed' ? ` · ${result.reason}` : ''}
             {` · ${(result.stageMs.totalMs / 1000).toFixed(1)}s local`}
           </p>
+          {(() => {
+            const cls = classifyFromStatus(result.status, result.reason);
+            if (cls.category === 'unknown' && result.status === 'completed') return null;
+            const isError = ['network','llm_timeout','llm_parse','firewall_block','dom_access','model_load','permission','max_steps'].includes(cls.category) || result.status === 'error' || result.status === 'blocked' || result.status === 'firewall_blocked';
+            if (!isError) return null;
+            return (
+              <div className="mt-2 rounded border p-2 text-xs" data-testid="classified-error">
+                <p className={cls.category === 'firewall_block' || cls.category === 'network' || cls.category === 'permission' ? 'text-red-600' : 'text-amber-600'}>
+                  {cls.category === 'network' ? '🔴 Backend unreachable' : cls.category === 'llm_timeout' ? '🟡 AI planner timed out' : cls.category === 'llm_parse' ? '🟡 AI returned unexpected response' : cls.category === 'firewall_block' ? '🔴 Privacy firewall blocked this request' : cls.category === 'dom_access' ? '🟡 Cannot access this page' : cls.category === 'model_load' ? '🟡 Vision model unavailable' : cls.category === 'permission' ? '🔴 Permission required' : cls.category === 'max_steps' ? '🟡 Task reached step limit (10/10)' : cls.message}
+                </p>
+                <p className="mt-1 text-neutral-600">{cls.category === 'network' ? 'Start the backend: cd backend/fastapi && uvicorn app.main:app --port 8000' : cls.category === 'llm_timeout' ? 'The LLM took too long to respond. Try again or switch to Offline mode.' : cls.category === 'llm_parse' ? 'The planner returned invalid actions. Retrying...' : cls.category === 'firewall_block' ? 'Raw PII detected in the request payload. This is a safety protection — the request was not sent.' : cls.category === 'dom_access' ? 'Chrome extensions cannot scan browser system pages (chrome://, extensions pages, etc.) Try on a regular website.' : cls.category === 'model_load' ? 'Icon detection model failed to load. Using text-based analysis only.' : cls.category === 'permission' ? 'Try reloading the extension or granting activeTab permission.' : cls.category === 'max_steps' ? 'The task was too complex to complete automatically.' : cls.debugHint}</p>
+                <div className="mt-1 flex gap-1">
+                  {cls.recoverable && <button className="rounded bg-emerald-600 px-2 py-0.5 text-white" data-testid="error-retry" onClick={() => void run()}>Retry</button>}
+                  {cls.category === 'llm_timeout' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-offline" onClick={() => setPlannerMode('offline')}>Switch to Offline</button>}
+                  {cls.category === 'firewall_block' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-view-blocked">View what was blocked</button>}
+                  {cls.category === 'model_load' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-continue">Continue anyway</button>}
+                  {cls.category === 'max_steps' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-view-progress">View progress so far</button>}
+                </div>
+              </div>
+            );
+          })()}
           {result.steps.length > 0 && (
             <ul className="mt-2 space-y-1 text-xs text-neutral-700" data-testid="agent-steps">
               {result.steps.map((step: AgentStepRecord) => (
@@ -483,6 +556,22 @@ export function AgentTask() {
               ))}
             </ul>
           )}
+        </div>
+      )}
+
+      <div className="mt-2 flex items-center gap-2 text-xs" data-testid="debug-toggle">
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={debugMode} onChange={(e) => { const on = e.target.checked; setDebugMode(on); setTraceEnabled(on); try{ void chrome.storage?.local?.set({ debugMode: on }); }catch{ /* ignore */ } if (!on) setTraceLines([]); }} data-testid="debug-toggle-checkbox" />
+          Debug trace
+        </label>
+      </div>
+
+      {debugMode && traceLines.length > 0 && (
+        <div className="mt-2 rounded border border-neutral-200 p-2 text-xs" data-testid="debug-trace">
+          <p className="font-semibold">Debug trace</p>
+          <ul className="mt-1 max-h-40 overflow-auto font-mono">
+            {traceLines.slice(-50).map((line, i) => <li key={i}>{line}</li>)}
+          </ul>
         </div>
       )}
 

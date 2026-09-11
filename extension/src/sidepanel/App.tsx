@@ -24,6 +24,7 @@ import { recordEvent, sessionTelemetry } from './telemetry-session';
 import { TelemetryPanel } from './TelemetryPanel';
 import { recordVisualStats } from './visual-stats';
 import { captureViaBackground } from './capture';
+import { ScanDetails, maskForCategory } from './ScanDetails';
 
 type ScanState = 'idle' | 'scanning' | 'done' | 'restricted' | 'error';
 
@@ -69,11 +70,13 @@ export function App() {
   const [state, setState] = useState<ScanState>('idle');
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [showRegions, setShowRegions] = useState(false);
+  const [scanDetails, setScanDetails] = useState<{ findings: import('./ScanDetails').ScanDetailsFinding[]; fields: { inputs: number; textareas: number; labels: number; total: number; sensitive: number; safe: number }; policy: { decision: string; signals: string[]; mode: string } } | null>(null);
 
   const runScan = async () => {
     setState('scanning');
     setSummary(null);
     setShowRegions(false);
+    setScanDetails(null);
 
     try {
       const response: ScanPageResponse = await chrome.runtime.sendMessage({ type: SCAN_PAGE });
@@ -146,6 +149,28 @@ export function App() {
       });
 
       const built = buildScanSummary(result, snapshot.viewport?.height);
+      // Phase 2 — build ScanDetails masked rows from vault aliases (never raw values in UI)
+      const scanFindings: import('./ScanDetails').ScanDetailsFinding[] = [];
+      for (const f of built.findings) {
+        if (f.category && f.displayId.startsWith('USER_')) {
+          const cat = f.category;
+          const alias = f.displayId;
+          let raw: string | undefined;
+          try { raw = await vault.resolve(alias); } catch { raw = undefined; }
+          const masked = raw ? maskForCategory(raw, cat) : '••••••••';
+          scanFindings.push({ alias, category: cat, masked, label: f.label, source: f.source ?? 'Text', confidence: f.severity ? String(f.severity) : 'High' });
+        }
+      }
+      const structure = response.structure ?? [];
+      const inputs = structure.filter((s) => s.tag === 'input').length;
+      const textareas = structure.filter((s) => s.tag === 'textarea').length;
+      const labels = structure.filter((s) => !!s.label).length;
+      const total = structure.length;
+      const sensitive = built.total;
+      const safe = Math.max(0, total - sensitive);
+      const decision = result.blocked ? '⛔ Block — critical credential present' : result.enforced ? `✅ Sanitize — ${result.aliases.length} fields will be aliased` : '⚠️ Restricted — cannot fully inspect';
+      const policySignals = result.findings.map((f) => f.action).filter((v, i, a) => a.indexOf(v) === i);
+      setScanDetails({ findings: scanFindings, fields: { inputs, textareas, labels, total, sensitive, safe }, policy: { decision, signals: policySignals, mode: 'Strict' } });
       // What the panel will render: text vs image/OCR region counts (no content).
       ocrTrace('UI_FINDINGS', {
         total: built.total,
@@ -252,6 +277,10 @@ export function App() {
             </ul>
           )}
         </section>
+      )}
+
+      {scanDetails !== null && summary !== null && (
+        <ScanDetails summary={summary} findings={scanDetails.findings} fields={scanDetails.fields} policy={scanDetails.policy} />
       )}
 
       <VisualStatus />
