@@ -29,6 +29,10 @@ import type { LocalVault } from '../vault';
 import type { PrivacyFirewall } from '../firewall';
 import type { AgentGateway } from './index';
 import { setNavigationAllowlist } from './session-policy';
+import { getProgressFingerprint } from './progress';
+import { classifyRisk } from './risk';
+import type { RiskLevel } from './risk';
+import { saveTaskState } from './task-state';
 
 /** One executed step, recorded for the UI/audit. Alias-level only — never a resolved value. */
 export interface AgentStepRecord {
@@ -38,6 +42,8 @@ export interface AgentStepRecord {
   /** 'executed', or the structured reason the loop stopped. */
   outcome: string;
   ok: boolean;
+  /** Non-blocking risk annotation (observability only; never gates execution). */
+  risk?: RiskLevel;
 }
 
 export type AgentRunStatus =
@@ -92,7 +98,9 @@ export interface AgentLoopOptions {
   onEvent?: (event: { type: 'STEP' | 'STOP'; code: string; index: number }) => void;
 }
 
-const DEFAULT_MAX_STEPS = 8;
+export const AUTONOMOUS_MAX_STEPS = 10;
+
+const DEFAULT_MAX_STEPS = AUTONOMOUS_MAX_STEPS;
 
 /**
  * Build the remote-safe `SanitizedNode` list from the raw internal structure. A label or
@@ -128,6 +136,7 @@ export function toSanitizedNodes(structure: ScanPageResponse['structure']): Sani
 async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   const steps: AgentStepRecord[] = [];
+  let previousFingerprint: string | null = null;
   let actionsExecuted = 0;
   const stage = { scanMs: 0, enforceMs: 0, planMs: 0, executeMs: 0 };
   const startedAt = performance.now();
@@ -267,8 +276,28 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
     stage.executeMs += performance.now() - executeStartedAt;
     const ok = outcome === 'executed';
     if (ok) actionsExecuted++;
-    steps.push({ index, action, outcome, ok });
+    const risk = classifyRisk(action);
+    steps.push({ index, action, outcome, ok, risk });
     options.onEvent?.({ type: 'STEP', code: outcome, index });
+
+    // Best-effort safe task persistence (session-only, alias-level, never values).
+    try {
+      await saveTaskState({
+        taskId: options.sessionId,
+        taskObjective: options.task,
+        currentStep: index + 1,
+        steps: steps.map((s) => ({
+          index: s.index,
+          action: s.action ? s.action.action : null,
+          outcome: s.outcome,
+          ok: s.ok,
+        })),
+        status: 'running',
+        updatedAt: Date.now(),
+      });
+    } catch {
+      // ignore - persistence is best-effort
+    }
 
     if (!ok) return stop('error', outcome);
 
@@ -283,15 +312,26 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
     // enabled). Repeated scrolls are legitimate progress toward below-fold controls
     // (the re-observation decides when to stop scrolling), so they are exempt — the
     // step budget still bounds them.
+    const fingerprint = getProgressFingerprint(
+      toSanitizedNodes(observed.structure),
+      pageOrigin,
+      action,
+    );
+    const fingerprintStalled =
+      previousFingerprint !== null &&
+      fingerprint === previousFingerprint &&
+      action.action !== 'SCROLL';
+    previousFingerprint = fingerprint;
+
     const previous = steps[steps.length - 2];
-    if (
+    const identicalRepeat =
       action.action !== 'SCROLL' &&
       previous !== undefined &&
       previous.ok &&
       previous.action !== null &&
       previous.action.action !== 'SCROLL' &&
-      JSON.stringify(previous.action) === JSON.stringify(action)
-    ) {
+      JSON.stringify(previous.action) === JSON.stringify(action);
+    if (identicalRepeat || fingerprintStalled) {
       return stop('max_steps', 'NO_PROGRESS');
     }
   }
