@@ -1,7 +1,7 @@
 """M9 — Local model provider (Ollama) for the `AGENT_PROVIDER` seam.
 
-Runs an open-weights model ON-DEVICE via Ollama (e.g. Gemma 3 12B — set `OLLAMA_MODEL`
-to your exact tag; the Gemma 3 family is also multimodal, which is the future vision
+Runs an open-weights model ON-DEVICE via Ollama (Qwen2.5-VL 3B by default — set `OLLAMA_MODEL`
+to your exact tag; the Qwen2.5-VL family is vision-capable, which is the future vision
 path). The request is ALREADY sanitized by the extension; this provider enforces the
 SAME fail-closed guarantees as the Gemini provider via the shared `llm_common`:
   - JSON-mode output parsed into `PlanResult` (a malformed answer fails closed);
@@ -31,7 +31,9 @@ from .llm_common import (
 )
 
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-DEFAULT_MODEL = "gemma3:12b"
+# qwen2.5vl:3b — 2.3GB quantized, vision-capable, lightest model that reliably produces
+# valid structured JSON for the action planning contract.
+DEFAULT_MODEL = "qwen2.5vl:3b"
 TIMEOUT_SECONDS = 90.0
 
 #: Hostnames that always count as loopback without consulting DNS.
