@@ -22,6 +22,8 @@ import { maskValue } from './reveal';
 import { getLastCloudPayload, getLastCloudPayloadMeta } from '../agent/remote';
 import { classifyFromStatus } from '../debug/errors';
 import { getTrace, startTrace, setTraceEnabled } from '../debug/trace';
+import { setAgentRunning } from './run-state';
+import { AUTONOMOUS_MAX_STEPS } from '../agent/loop';
 import {
   addTemplate,
   deleteTemplate,
@@ -85,6 +87,7 @@ export function AgentTask() {
     const objective = (objectiveOverride ?? task).trim();
     if (objective.length === 0) return;
     setState('running');
+    setAgentRunning(true);
     setResult(null);
     setLiveLog([...STEP_LOG_OPENERS]);
     if (debugMode) { startTrace(); setTraceLines([]); }
@@ -197,8 +200,10 @@ export function AgentTask() {
       setLiveLog((prev) => [...prev, ...lines].slice(-30));
       setResult(runResult);
       setState('done');
+      setAgentRunning(false);
     } catch {
       setState('done');
+      setAgentRunning(false);
       setResult({
         status: 'error',
         reason: 'LOOP_CRASHED',
@@ -262,17 +267,17 @@ export function AgentTask() {
   }, []);
 
   return (
-    <section className="mt-6 border-t border-neutral-200 pt-4" aria-label="Agent task">
-      <h2 className="text-sm font-semibold">Agent task</h2>
-      <p className="mt-1 text-xs text-neutral-500">
+    <section className="pa-card" style={{ padding: '12px 14px', marginTop: 10 }} aria-label="Agent task">
+      <p className="pa-section-label">Automated agent</p>
+      <p className="pa-faint" style={{ marginTop: 4, fontSize: 11 }}>
         The planner sees sanitized aliases only; values are resolved locally at execution.
       </p>
 
-      <div className="mt-2 flex gap-1 overflow-x-auto pb-1" data-testid="template-chips">
+      <div className="pa-chips" style={{ display: 'flex', gap: 6, overflowX: 'auto', margin: '10px 0 6px', paddingBottom: 4 }} data-testid="template-chips">
         {templates.map((tpl) => (
-          <span key={tpl.id} className="flex shrink-0 items-center gap-1">
+          <span key={tpl.id} style={{ display: 'flex', flexShrink: 0, alignItems: 'center', gap: 4 }}>
             <button
-              className="rounded-full border border-neutral-300 bg-neutral-50 px-2 py-0.5 text-xs hover:bg-neutral-100"
+              className="pa-chip"
               data-testid={`template-${tpl.id}`}
               title={tpl.description}
               disabled={state === 'running'}
@@ -285,7 +290,7 @@ export function AgentTask() {
             </button>
             {!getDefaultTemplates().some((d) => d.id === tpl.id) && (
               <button
-                className="text-xs text-neutral-400 hover:text-red-600"
+                style={{ fontSize: 12, color: 'var(--pa-dim)' }}
                 data-testid={`template-delete-${tpl.id}`}
                 title="Delete custom template"
                 disabled={state === 'running'}
@@ -303,7 +308,8 @@ export function AgentTask() {
           </span>
         ))}
         <button
-          className="shrink-0 rounded-full border border-dashed border-neutral-300 px-2 py-0.5 text-xs text-neutral-500"
+          className="pa-chip"
+          style={{ flexShrink: 0, borderStyle: 'dashed' }}
           data-testid="template-custom-open"
           disabled={state === 'running'}
           onClick={() => setShowCustomModal(true)}
@@ -313,24 +319,27 @@ export function AgentTask() {
       </div>
 
       {showCustomModal && (
-        <div className="mt-2 rounded border border-neutral-300 p-2" data-testid="template-custom-modal">
+        <div className="pa-card" style={{ marginTop: 8, padding: 8 }} data-testid="template-custom-modal">
           <input
-            className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+            className="pa-input"
+            style={{ fontSize: 12 }}
             placeholder="Template name"
             data-testid="template-custom-name"
             value={customName}
             onChange={(e) => setCustomName(e.target.value)}
           />
           <textarea
-            className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+            className="pa-textarea"
+            style={{ marginTop: 4, fontSize: 12 }}
             placeholder="Instruction (no personal values — categories only)"
             data-testid="template-custom-instruction"
             value={customInstruction}
             onChange={(e) => setCustomInstruction(e.target.value)}
           />
-          <div className="mt-1 flex gap-2">
+          <div style={{ marginTop: 4, display: 'flex', gap: 8 }}>
             <button
-              className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white"
+              className="pa-run pa-run-idle"
+              style={{ width: 'auto', padding: '4px 12px', fontSize: 12 }}
               data-testid="template-custom-save"
               disabled={customName.trim().length === 0 || customInstruction.trim().length === 0}
               onClick={() => {
@@ -350,7 +359,7 @@ export function AgentTask() {
               Save
             </button>
             <button
-              className="rounded bg-neutral-200 px-2 py-0.5 text-xs"
+              className="pa-chip"
               onClick={() => setShowCustomModal(false)}
             >
               Cancel
@@ -359,17 +368,20 @@ export function AgentTask() {
         </div>
       )}
 
-      <input
-        className="mt-2 w-full rounded border border-neutral-300 px-2 py-1 text-sm"
+      <p className="pa-label" style={{ marginTop: 10, marginBottom: 6 }}>
+        Natural Language Instruction
+      </p>
+      <textarea
+        className="pa-textarea"
         placeholder="e.g. fill the form with my details and submit"
         value={task}
         onChange={(event) => setTask(event.target.value)}
         disabled={state === 'running'}
       />
 
-      <fieldset className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-neutral-600">
+      <fieldset style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: '4px 16px', fontSize: 12 }} className="pa-muted">
         <legend className="sr-only">Planner mode</legend>
-        <label className="flex items-center gap-1">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input
             data-testid="planner-mode-local"
             type="radio"
@@ -380,7 +392,7 @@ export function AgentTask() {
           />
           Local AI (Ollama)
         </label>
-        <label className="flex items-center gap-1">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input
             data-testid="planner-mode-gemini"
             type="radio"
@@ -391,7 +403,7 @@ export function AgentTask() {
           />
           Gemini
         </label>
-        <label className="flex items-center gap-1">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input
             data-testid="planner-mode-offline"
             type="radio"
@@ -404,47 +416,113 @@ export function AgentTask() {
         </label>
       </fieldset>
 
-      <div className="mt-1 flex items-center gap-1 text-xs" data-testid="backend-health">
+      <div style={{ marginTop: 4, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }} className="pa-faint" data-testid="backend-health">
         {plannerMode === 'offline' ? (
           <span>⚫ Offline mode selected (backend not needed)</span>
         ) : backendOnline === null ? (
           <span>⚪ Checking backend...</span>
         ) : backendOnline ? (
-          <span>🟢 Backend online</span>
+          <span style={{ color: 'var(--pa-accent)' }}>🟢 Backend online</span>
         ) : (
-          <span>🔴 Backend offline — switch to Offline mode</span>
+          <span style={{ color: 'var(--pa-danger)' }}>🔴 Backend offline — switch to Offline mode</span>
         )}
       </div>
 
-      <button
-        className="mt-2 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
-        onClick={() => void run()}
-        disabled={state === 'running' || task.trim().length === 0}
-      >
-        {state === 'running' ? 'Running…' : 'Run agent task'}
-      </button>
+      {(() => {
+        const stepEvents = liveLog.filter((line) => line.startsWith('\u25B8')).length;
+        if (state === 'running') {
+          return (
+            <button
+              className="pa-run pa-run-busy"
+              style={{ marginTop: 8 }}
+              aria-label="Run agent task"
+              onClick={() => void run()}
+              disabled
+            >
+              <span aria-hidden="true" className="pa-spinner" />
+              Running... (step {stepEvents}/{AUTONOMOUS_MAX_STEPS})
+            </button>
+          );
+        }
+        if (state === 'done' && result !== null && result.status === 'completed') {
+          return (
+            <button
+              className="pa-run pa-run-done"
+              style={{ marginTop: 8 }}
+              aria-label="Run agent task"
+              onClick={() => void run()}
+              disabled={task.trim().length === 0}
+            >
+              ✅ Task Complete — Run Again
+            </button>
+          );
+        }
+        if (state === 'done' && result !== null && result.status === 'paused_captcha') {
+          return (
+            <button
+              className="pa-run pa-run-warn"
+              style={{ marginTop: 8 }}
+              aria-label="Run agent task"
+              onClick={() => void run()}
+              disabled={task.trim().length === 0}
+            >
+              ⚠️ CAPTCHA — solve then Resume
+            </button>
+          );
+        }
+        if (state === 'done' && result !== null) {
+          return (
+            <button
+              className="pa-run pa-run-error"
+              style={{ marginTop: 8 }}
+              aria-label="Run agent task"
+              onClick={() => void run()}
+              disabled={task.trim().length === 0}
+            >
+              ❌ {result.reason ?? result.status} — Retry
+            </button>
+          );
+        }
+        return (
+          <button
+            className="pa-run pa-run-idle"
+            style={{ marginTop: 8 }}
+            aria-label="Run agent task"
+            onClick={() => void run()}
+            disabled={task.trim().length === 0}
+          >
+            ⚡ Run Automated Agent
+          </button>
+        );
+      })()}
 
       {liveLog.length > 0 && (
-        <ul
-          className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-neutral-700"
-          data-testid="agent-live-log"
-        >
-          {liveLog.slice(-10).map((line, i) => (
-            <li key={`${i}-${line}`} className="font-mono">
-              {line}
-            </li>
-          ))}
-        </ul>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline' }}>
+            <span className="pa-section-label">Step log</span>
+            <span className="pa-section-label" style={{ marginLeft: 'auto' }}>
+              [{result !== null ? result.steps.length : liveLog.filter((line) => line.startsWith('\u25B8')).length}/{AUTONOMOUS_MAX_STEPS} steps]
+            </span>
+          </div>
+          <ul className="pa-steplog" data-testid="agent-live-log">
+            {liveLog.slice(-10).map((line, i) => (
+              <li key={`${i}-${line}`}>
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {pendingNav !== null && state === 'running' && (
-        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs" data-testid="nav-confirm">
-          <p>
+        <div className="pa-card" style={{ marginTop: 8, padding: 8, borderColor: 'rgba(245,158,11,0.3)', fontSize: 12 }} data-testid="nav-confirm">
+          <p style={{ color: 'var(--pa-text)' }}>
             Agent wants to navigate to {originDisplay(pendingNav)} — allow? [Yes/No]
           </p>
-          <div className="mt-1 flex gap-2">
+          <div style={{ marginTop: 4, display: 'flex', gap: 8 }}>
             <button
-              className="rounded bg-emerald-600 px-2 py-0.5 text-white"
+              className="pa-run pa-run-idle"
+              style={{ width: 'auto', padding: '2px 12px', fontSize: 12 }}
               data-testid="nav-confirm-yes"
               onClick={() => {
                 navResolver.current?.(true);
@@ -456,7 +534,7 @@ export function AgentTask() {
               Yes
             </button>
             <button
-              className="rounded bg-neutral-300 px-2 py-0.5"
+              className="pa-chip"
               data-testid="nav-confirm-no"
               onClick={() => {
                 navResolver.current?.(false);
@@ -472,22 +550,24 @@ export function AgentTask() {
       )}
 
       {state === 'done' && result !== null && result.status === 'paused_captcha' && (
-        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs" data-testid="captcha-banner">
-          <p>⚠️ CAPTCHA detected — solve it and click Resume</p>
-          <div className="mt-1 flex gap-2">
+        <div className="pa-card" style={{ marginTop: 8, padding: 8, borderColor: 'rgba(245,158,11,0.3)', fontSize: 12 }} data-testid="captcha-banner">
+          <p style={{ color: 'var(--pa-warning)' }}>⚠️ CAPTCHA detected — solve it and click Resume</p>
+          <div style={{ marginTop: 4, display: 'flex', gap: 8 }}>
             <button
-              className="rounded bg-emerald-600 px-2 py-0.5 text-white"
+              className="pa-run pa-run-warn"
+              style={{ width: 'auto', padding: '2px 12px', fontSize: 12 }}
               data-testid="captcha-resume"
               onClick={() => void run()}
             >
               Resume
             </button>
             <button
-              className="rounded bg-neutral-300 px-2 py-0.5"
+              className="pa-chip"
               data-testid="captcha-cancel"
               onClick={() => {
                 setResult(null);
                 setState('idle');
+                setAgentRunning(false);
               }}
             >
               Cancel
@@ -497,19 +577,22 @@ export function AgentTask() {
       )}
 
       {state === 'done' && result !== null && (
-        <div className="mt-3" data-testid="agent-result">
+        <div className="pa-card" style={{ marginTop: 12, padding: '12px 14px' }} data-testid="agent-result">
           <p
-            className={
-              result.status === 'completed'
-                ? 'font-medium text-green-700'
-                : result.status === 'paused_captcha'
-                  ? 'font-medium text-amber-600'
-                  : 'font-medium text-red-600'
-            }
+            style={{
+              fontWeight: 600,
+              fontSize: 13,
+              color:
+                result.status === 'completed'
+                  ? 'var(--pa-accent)'
+                  : result.status === 'paused_captcha'
+                    ? 'var(--pa-warning)'
+                    : 'var(--pa-danger)',
+            }}
           >
             {STATUS_TEXT[result.status]}
           </p>
-          <p className="text-xs text-neutral-500">
+          <p className="pa-faint" style={{ fontSize: 12 }}>
             {result.actionsExecuted} action{result.actionsExecuted === 1 ? '' : 's'} executed
             {result.reason !== undefined && result.status !== 'completed' ? ` · ${result.reason}` : ''}
             {` · ${(result.stageMs.totalMs / 1000).toFixed(1)}s local`}
@@ -520,25 +603,25 @@ export function AgentTask() {
             const isError = ['network','llm_timeout','llm_parse','firewall_block','dom_access','model_load','permission','max_steps'].includes(cls.category) || result.status === 'error' || result.status === 'blocked' || result.status === 'firewall_blocked';
             if (!isError) return null;
             return (
-              <div className="mt-2 rounded border p-2 text-xs" data-testid="classified-error">
-                <p className={cls.category === 'firewall_block' || cls.category === 'network' || cls.category === 'permission' ? 'text-red-600' : 'text-amber-600'}>
+              <div className="pa-card" style={{ marginTop: 8, padding: 8, fontSize: 12 }} data-testid="classified-error">
+                <p style={{ color: cls.category === 'firewall_block' || cls.category === 'network' || cls.category === 'permission' ? 'var(--pa-danger)' : 'var(--pa-warning)' }}>
                   {cls.category === 'network' ? '🔴 Backend unreachable' : cls.category === 'llm_timeout' ? '🟡 AI planner timed out' : cls.category === 'llm_parse' ? '🟡 AI returned unexpected response' : cls.category === 'firewall_block' ? '🔴 Privacy firewall blocked this request' : cls.category === 'dom_access' ? '🟡 Cannot access this page' : cls.category === 'model_load' ? '🟡 Vision model unavailable' : cls.category === 'permission' ? '🔴 Permission required' : cls.category === 'max_steps' ? '🟡 Task reached step limit (10/10)' : cls.message}
                 </p>
-                <p className="mt-1 text-neutral-600">{cls.category === 'network' ? 'Start the backend: cd backend/fastapi && uvicorn app.main:app --port 8000' : cls.category === 'llm_timeout' ? 'The LLM took too long to respond. Try again or switch to Offline mode.' : cls.category === 'llm_parse' ? 'The planner returned invalid actions. Retrying...' : cls.category === 'firewall_block' ? `${cls.debugHint}. This is a safety protection — the request was not sent.` : cls.category === 'dom_access' ? 'Chrome extensions cannot scan browser system pages (chrome://, extensions pages, etc.) Try on a regular website.' : cls.category === 'model_load' ? 'Icon detection model failed to load. Using text-based analysis only.' : cls.category === 'permission' ? 'Try reloading the extension or granting activeTab permission.' : cls.category === 'max_steps' ? 'The task was too complex to complete automatically.' : cls.debugHint}</p>
-                <div className="mt-1 flex gap-1">
-                  {cls.recoverable && <button className="rounded bg-emerald-600 px-2 py-0.5 text-white" data-testid="error-retry" onClick={() => void run()}>Retry</button>}
-                  {cls.category === 'llm_timeout' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-offline" onClick={() => setPlannerMode('offline')}>Switch to Offline</button>}
-                  {cls.category === 'firewall_block' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-view-blocked">View what was blocked</button>}
-                  {cls.category === 'model_load' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-continue">Continue anyway</button>}
-                  {cls.category === 'max_steps' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-view-progress">View progress so far</button>}
+                <p className="pa-muted" style={{ marginTop: 4, fontSize: 12 }}>{cls.category === 'network' ? 'Start the backend: cd backend/fastapi && uvicorn app.main:app --port 8000' : cls.category === 'llm_timeout' ? 'The LLM took too long to respond. Try again or switch to Offline mode.' : cls.category === 'llm_parse' ? 'The planner returned invalid actions. Retrying...' : cls.category === 'firewall_block' ? `${cls.debugHint}. This is a safety protection — the request was not sent.` : cls.category === 'dom_access' ? 'Chrome extensions cannot scan browser system pages (chrome://, extensions pages, etc.) Try on a regular website.' : cls.category === 'model_load' ? 'Icon detection model failed to load. Using text-based analysis only.' : cls.category === 'permission' ? 'Try reloading the extension or granting activeTab permission.' : cls.category === 'max_steps' ? 'The task was too complex to complete automatically.' : cls.debugHint}</p>
+                <div style={{ marginTop: 4, display: 'flex', gap: 4 }}>
+                  {cls.recoverable && <button className="pa-run pa-run-idle" style={{ width: 'auto', padding: '2px 12px', fontSize: 12 }} data-testid="error-retry" onClick={() => void run()}>Retry</button>}
+                  {cls.category === 'llm_timeout' && <button className="pa-chip" data-testid="error-offline" onClick={() => setPlannerMode('offline')}>Switch to Offline</button>}
+                  {cls.category === 'firewall_block' && <button className="pa-chip" data-testid="error-view-blocked">View what was blocked</button>}
+                  {cls.category === 'model_load' && <button className="pa-chip" data-testid="error-continue">Continue anyway</button>}
+                  {cls.category === 'max_steps' && <button className="pa-chip" data-testid="error-view-progress">View progress so far</button>}
                 </div>
               </div>
             );
           })()}
           {result.steps.length > 0 && (
-            <ul className="mt-2 space-y-1 text-xs text-neutral-700" data-testid="agent-steps">
+            <ul style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 12 }} className="pa-muted" data-testid="agent-steps">
               {result.steps.map((step: AgentStepRecord) => (
-                <li key={step.index} className="font-mono">
+                <li key={step.index} style={{ fontFamily: 'monospace' }}>
                   {step.action === null ? (
                     <span>#{step.index} — planner: no further action</span>
                   ) : (
@@ -556,33 +639,63 @@ export function AgentTask() {
               ))}
             </ul>
           )}
+          {(() => {
+            const rows = [
+              { label: 'Scan', ms: result.stageMs.scanMs },
+              { label: 'Enforce', ms: result.stageMs.enforceMs },
+              { label: 'Plan', ms: result.stageMs.planMs },
+              { label: 'Execute', ms: result.stageMs.executeMs },
+              { label: 'Total', ms: result.stageMs.totalMs },
+            ];
+            const max = Math.max(1, ...rows.map((r) => r.ms));
+            return (
+              <div className="pa-latency" data-testid="latency-breakdown">
+                <p className="pa-latency-title">⚡ On-Device Latency Breakdown</p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 12px' }}>
+                  {rows.map((row) => (
+                    <div key={row.label}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                        <span style={{ color: 'var(--pa-faint)', fontSize: 10 }}>{row.label}</span>
+                        <span style={{ color: 'var(--pa-text)', fontSize: 12, fontFamily: 'monospace', marginLeft: 'auto' }}>
+                          {row.ms.toFixed(1)}ms
+                        </span>
+                      </div>
+                      <div className="pa-bar" style={{ marginTop: 2 }}>
+                        <span style={{ width: `${Math.max(2, Math.round((row.ms / max) * 100))}%` }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-2 text-xs" data-testid="debug-toggle">
-        <label className="flex items-center gap-1">
+      <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }} className="pa-faint" data-testid="debug-toggle">
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <input type="checkbox" checked={debugMode} onChange={(e) => { const on = e.target.checked; setDebugMode(on); setTraceEnabled(on); try{ void chrome.storage?.local?.set({ debugMode: on }); }catch{ /* ignore */ } if (!on) setTraceLines([]); }} data-testid="debug-toggle-checkbox" />
           Debug trace
         </label>
       </div>
 
       {debugMode && traceLines.length > 0 && (
-        <div className="mt-2 rounded border border-neutral-200 p-2 text-xs" data-testid="debug-trace">
-          <p className="font-semibold">Debug trace</p>
-          <ul className="mt-1 max-h-40 overflow-auto font-mono">
+        <div className="pa-card" style={{ marginTop: 8, padding: 8, fontSize: 12 }} data-testid="debug-trace">
+          <p style={{ fontWeight: 600, color: 'var(--pa-text)' }}>Debug trace</p>
+          <ul className="pa-steplog" style={{ marginTop: 4, maxHeight: 160 }}>
             {traceLines.slice(-50).map((line, i) => <li key={i}>{line}</li>)}
           </ul>
         </div>
       )}
 
       {state === 'done' && result !== null && (
-        <section className="mt-4 rounded border border-neutral-200 p-3" aria-label="Transparency" data-testid="transparency">
-          <h3 className="text-xs font-semibold text-neutral-700">Transparency</h3>
-          <p className="mt-1 text-xs text-neutral-500">Local values stay on this device · Cloud payload is sanitized</p>
+        <section className="pa-card" style={{ marginTop: 12, padding: '12px 14px' }} aria-label="Transparency" data-testid="transparency">
+          <p className="pa-section-label">Transparency</p>
+          <p className="pa-faint" style={{ marginTop: 4, fontSize: 11 }}>Local values stay on this device · Cloud payload is sanitized</p>
 
-          <div className="mt-2 flex gap-2">
+          <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
             <button
-              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 disabled:opacity-50"
+              className="pa-chip"
               data-testid="reveal-toggle"
               disabled={revealRows.length === 0}
               onClick={() => setRevealOpen((v) => !v)}
@@ -590,7 +703,7 @@ export function AgentTask() {
               {revealOpen ? "Hide session values" : "👁 Reveal session values (this device only)"}
             </button>
             <button
-              className="rounded border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700"
+              className="pa-chip"
               data-testid="cloud-toggle"
               onClick={() => setCloudOpen((v) => !v)}
             >
@@ -599,23 +712,24 @@ export function AgentTask() {
           </div>
 
           {revealOpen && (
-            <div className="mt-2" data-testid="reveal-panel">
-              <p className="text-xs text-amber-600">Visible on this screen only — never sent, logged, or stored</p>
+            <div style={{ marginTop: 8 }} data-testid="reveal-panel">
+              <p style={{ fontSize: 12, color: 'var(--pa-warning)' }}>Visible on this screen only — never sent, logged, or stored</p>
               {revealRows.length === 0 ? (
-                <p className="mt-1 text-xs text-neutral-500">No values in memory</p>
+                <p className="pa-faint" style={{ marginTop: 4, fontSize: 12 }}>No values in memory</p>
               ) : (
-                <ul className="mt-1 space-y-1" data-testid="reveal-rows">
+                <ul style={{ marginTop: 4, display: 'grid', gap: 4 }} data-testid="reveal-rows">
                   {revealRows.map((row) => {
                     const isUnmasked = unmasked.has(row.alias);
                     return (
-                      <li key={row.alias} className="flex items-center justify-between rounded bg-neutral-50 px-2 py-1 font-mono text-xs">
+                      <li key={row.alias} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '8px 12px', fontFamily: 'monospace', fontSize: 12 }}>
                         <span>
-                          <span className="font-semibold">{row.alias}</span>
-                          <span className="ml-1 text-neutral-500">({row.category})</span>
-                          <span className="ml-2">{isUnmasked ? row.value : row.masked}</span>
+                          <span className="pa-alias">{row.alias}</span>
+                          <span className="pa-faint" style={{ marginLeft: 4 }}>({row.category})</span>
+                          <span style={{ marginLeft: 8, color: 'var(--pa-text)' }}>{isUnmasked ? row.value : row.masked}</span>
                         </span>
                         <button
-                          className="ml-2 rounded bg-white px-1 py-0.5 text-xs text-neutral-600"
+                          className="pa-chip"
+                          style={{ marginLeft: 8 }}
                           data-testid={`reveal-unmask-${row.alias}`}
                           onClick={() => {
                             setUnmasked((prev) => {
@@ -637,13 +751,13 @@ export function AgentTask() {
           )}
 
           {cloudOpen && (
-            <div className="mt-2 rounded bg-neutral-50 p-2 text-xs" data-testid="cloud-panel">
+            <div className="pa-card" style={{ marginTop: 8, padding: 8, fontSize: 12 }} data-testid="cloud-panel">
               {cloudSnapshot === null ? (
-                <p className="text-neutral-500">Offline run — 0 bytes left this device</p>
+                <p className="pa-faint">Offline run — 0 bytes left this device</p>
               ) : (
                 <>
-                  <p className="font-medium text-neutral-700">Curated summary</p>
-                  <ul className="mt-1 space-y-0.5 font-mono text-neutral-600">
+                  <p style={{ fontWeight: 600, color: 'var(--pa-text)' }}>Curated summary</p>
+                  <ul className="pa-muted" style={{ marginTop: 4, display: 'grid', gap: 2, fontFamily: 'monospace', fontSize: 11 }}>
                     <li>task: {cloudSnapshot.taskObjective.slice(0, 60)}</li>
                     <li>origin: {cloudSnapshot.pageOrigin ?? "unknown"}</li>
                     <li>nodes: {cloudSnapshot.sanitizedPageStructure.length} · aliases: {cloudSnapshot.aliases.length} · bytes: {cloudMeta?.bytes ?? JSON.stringify(cloudSnapshot).length}</li>
@@ -651,14 +765,15 @@ export function AgentTask() {
                     <li>aliases: {cloudSnapshot.aliases.map((a) => a.alias).join(", ") || "none"}</li>
                   </ul>
                   <button
-                    className="mt-2 rounded bg-white px-2 py-0.5 text-xs text-neutral-600"
+                    className="pa-chip"
+                    style={{ marginTop: 8 }}
                     data-testid="cloud-show-raw"
                     onClick={() => setShowRaw((v) => !v)}
                   >
                     {showRaw ? "Hide raw" : "Show raw"}
                   </button>
                   {showRaw && (
-                    <pre className="mt-1 max-h-40 overflow-auto rounded bg-white p-2 font-mono text-xs" data-testid="cloud-raw">
+                    <pre className="pa-steplog" style={{ marginTop: 4, maxHeight: 160, color: 'var(--pa-text)' }} data-testid="cloud-raw">
                       {JSON.stringify(cloudSnapshot, null, 2)}
                     </pre>
                   )}

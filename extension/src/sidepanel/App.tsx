@@ -6,9 +6,10 @@
 // and displays the derived, sanitized `ScanSummary`: counts, semantic aliases, and
 // masked-region metadata only. Raw values reach only the LOCAL vault, never the UI.
 
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { VisualStatus } from './VisualStatus';
 import { AgentTask } from './AgentTask';
+import { VaultPanel } from './VaultPanel';
 import { detectPII } from '../perception/pii';
 import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
@@ -25,8 +26,14 @@ import { TelemetryPanel } from './TelemetryPanel';
 import { recordVisualStats } from './visual-stats';
 import { captureViaBackground } from './capture';
 import { ScanDetails, maskForCategory } from './ScanDetails';
+import { getRunStateVersion, isAgentRunning, subscribeToRunState } from './run-state';
+import { getAuditLog } from '../audit/log';
+import { aliasesFromAudit } from './VaultPanel';
+import { useEffect } from 'react';
 
 type ScanState = 'idle' | 'scanning' | 'done' | 'restricted' | 'error';
+
+type PanelTab = 'run' | 'audit' | 'vault';
 
 /**
  * Scroll the active tab to document y `top` for bounded below-the-fold band capture, then
@@ -71,6 +78,37 @@ export function App() {
   const [summary, setSummary] = useState<ScanSummary | null>(null);
   const [showRegions, setShowRegions] = useState(false);
   const [scanDetails, setScanDetails] = useState<{ findings: import('./ScanDetails').ScanDetailsFinding[]; fields: { inputs: number; textareas: number; labels: number; total: number; sensitive: number; safe: number }; policy: { decision: string; signals: string[]; mode: string } } | null>(null);
+  const [tab, setTab] = useState<PanelTab>('run');
+  useSyncExternalStore(subscribeToRunState, getRunStateVersion);
+  const agentRunning = isAgentRunning();
+  // Footer sub-line counts, derived from the value-free audit log (counts only).
+  const [auditCounts, setAuditCounts] = useState<{ actions: number; aliases: number; clicks: number } | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const refresh = (): void => {
+      void getAuditLog().then((entries) => {
+        if (!alive) return;
+        setAuditCounts({
+          actions: entries.filter((e) => e.type === 'action_executed').length,
+          aliases: aliasesFromAudit(entries).length,
+          clicks: entries.filter((e) => e.type === 'action_executed' && e.detail.startsWith('CLICK')).length,
+        });
+      });
+    };
+    refresh();
+    const timer = setInterval(refresh, 2000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+  const resultActionsLine =
+    auditCounts !== null && auditCounts.actions > 0 ? (
+      <p style={{ color: 'var(--pa-dim)', fontSize: 10, lineHeight: 1.4, marginTop: 4 }}>
+        Agent executed {auditCounts.actions} actions ({auditCounts.aliases} protected fields
+        resolved on-device, {auditCounts.clicks} clicks). 0 bytes of raw PII left this device.
+      </p>
+    ) : null;
 
   const runScan = async () => {
     setState('scanning');
@@ -185,69 +223,119 @@ export function App() {
   };
 
   return (
-    <main className="p-4 text-sm">
-      <div className="flex items-center gap-2">
-        <span aria-hidden="true" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-white">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4z" />
-            <path d="M9 12l2 2 4-4" />
-          </svg>
-        </span>
-        <h1 className="text-base font-semibold">PrivAgent</h1>
-        <span className="ml-auto rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">on-device</span>
-      </div>
-      <p className="mt-1 text-neutral-500">Private AI browsing — values never leave this machine</p>
-      <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700">
-        <span aria-hidden="true">🛡️</span> 0 bytes leaked · shielded locally
+    <main className="pa-root" style={{ fontSize: 14 }}>
+      <header className="pa-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span aria-hidden="true" style={{ display: 'inline-flex', color: 'var(--pa-accent)' }}>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              className={agentRunning ? 'pa-shield-spin' : undefined}
+            >
+              <defs>
+                <linearGradient id="paShieldGrad" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#00d4aa" />
+                  <stop offset="100%" stopColor="#6366f1" />
+                </linearGradient>
+              </defs>
+              <path fill="url(#paShieldGrad)" d="M12 2L4 6v6c0 5.5 3.8 10.7 8 12 4.2-1.3 8-6.5 8-12V6l-8-4z" />
+            </svg>
+          </span>
+          <h1 className="pa-header-title">PrivAgent</h1>
+          <span className="pa-ondevice" style={{ marginLeft: 'auto' }}>
+            <span aria-hidden="true" className={agentRunning ? 'pa-dot pa-dot-pulse' : 'pa-dot'}>
+              ●
+            </span>{' '}
+            ON-DEVICE
+          </span>
+        </div>
+        <p className="pa-header-sub" style={{ marginTop: 2 }}>
+          SIH26171 · Privacy-Preserving Agent
+        </p>
+      </header>
+
+      <nav className="pa-tabs" aria-label="Panel sections">
+        <button
+          className={tab === 'run' ? 'pa-tab pa-tab-active' : 'pa-tab'}
+          data-testid="tab-run"
+          aria-pressed={tab === 'run'}
+          onClick={() => setTab('run')}
+        >
+          ⚡ Run Agent
+        </button>
+        <button
+          className={tab === 'audit' ? 'pa-tab pa-tab-active' : 'pa-tab'}
+          data-testid="tab-audit"
+          aria-pressed={tab === 'audit'}
+          onClick={() => setTab('audit')}
+        >
+          🔍 Audit
+        </button>
+        <button
+          className={tab === 'vault' ? 'pa-tab pa-tab-active' : 'pa-tab'}
+          data-testid="tab-vault"
+          aria-pressed={tab === 'vault'}
+          onClick={() => setTab('vault')}
+        >
+          🔐 Vault
+        </button>
+      </nav>
+
+      <div className="pa-tabpane" hidden={tab !== 'run'} style={{ padding: '12px 14px' }}>
+      <p className="pa-section-label">Privacy scan</p>
+      <p className="pa-faint" style={{ fontSize: 12, marginTop: 4 }}>
+        Values never leave this machine — only aliases cross the firewall.
       </p>
 
       <button
-        className="mt-4 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+        className="pa-run pa-run-idle"
+        style={{ marginTop: 12 }}
         onClick={runScan}
         disabled={state === 'scanning'}
       >
         {state === 'scanning' ? 'Scanning…' : summary !== null ? 'Scan again' : 'Scan Page'}
       </button>
 
-      {state === 'scanning' && <p className="mt-3 text-neutral-500">Scan: … analysing page</p>}
+      {state === 'scanning' && <p className="pa-faint" style={{ marginTop: 12, fontSize: 12 }}>Scan: … analysing page</p>}
       {state === 'restricted' && (
-        <p className="mt-3 text-amber-600">Scan: ⚠️ Restricted page — browser security</p>
+        <p style={{ marginTop: 12, fontSize: 12, color: 'var(--pa-warning)' }}>Scan: ⚠️ Restricted page — browser security</p>
       )}
       {state === 'error' && (
-        <p className="mt-3 text-red-500">
+        <p style={{ marginTop: 12, fontSize: 12, color: 'var(--pa-danger)' }}>
           Scan: ✕ Could not read this page. If it was open before PrivAgent loaded, reload it.
         </p>
       )}
 
       {state === 'done' && summary !== null && (
-        <section className="mt-4" aria-label="Scan findings">
-          <p className="font-medium text-green-700">Scan: ✓ Complete</p>
-          <p className="mt-1">
-            Sensitive items: <strong>{summary.total}</strong>
+        <section className="pa-card" style={{ marginTop: 12, padding: '12px 14px' }} aria-label="Scan findings">
+          <p style={{ fontWeight: 600, color: 'var(--pa-accent)', fontSize: 13 }}>Scan: ✓ Complete</p>
+          <p className="pa-muted" style={{ marginTop: 4, fontSize: 12 }}>
+            Sensitive items: <strong style={{ color: 'var(--pa-text)' }}>{summary.total}</strong>
           </p>
-          <p className="text-neutral-600">
+          <p className="pa-faint" style={{ fontSize: 12 }}>
             Text regions: {summary.textCount} · Image/OCR regions: {summary.imageCount}
           </p>
 
           {summary.blocked && (
-            <p className="mt-1 text-red-600">
+            <p style={{ marginTop: 4, fontSize: 12, color: 'var(--pa-danger)' }}>
               ⛔ Critical credential present — outbound blocked (fail-closed)
             </p>
           )}
 
           {summary.total === 0 ? (
-            <p className="mt-3 text-neutral-500">No sensitive data detected.</p>
+            <p className="pa-faint" style={{ marginTop: 12, fontSize: 12 }}>No sensitive data detected.</p>
           ) : (
-            <ul className="mt-3 space-y-1" data-testid="findings">
+            <ul style={{ marginTop: 12, display: 'grid', gap: 4 }} data-testid="findings">
               {summary.findings.map((finding) => (
-                <li key={finding.displayId} className="text-neutral-800">
+                <li key={finding.displayId} style={{ fontSize: 12, color: 'var(--pa-text)' }}>
                   <span aria-hidden="true">{findingIcon(finding)}</span>{' '}
-                  <span className="text-xs uppercase tracking-wide text-neutral-500">
+                  <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--pa-faint)' }}>
                     {finding.label}
                   </span>{' '}
-                  <span className="font-mono">{finding.displayId}</span>
+                  <span style={{ fontFamily: 'monospace' }}>{finding.displayId}</span>
                   {finding.section !== undefined && (
-                    <span className="text-neutral-500"> · Page section {finding.section}</span>
+                    <span className="pa-faint"> · Page section {finding.section}</span>
                   )}
                 </li>
               ))}
@@ -256,7 +344,7 @@ export function App() {
 
           {summary.total > 0 && (
             <button
-              className="mt-3 text-xs text-blue-600 underline"
+              style={{ marginTop: 12, fontSize: 12, color: 'var(--pa-secondary)', textDecoration: 'underline' }}
               onClick={() => setShowRegions((value) => !value)}
             >
               {showRegions ? 'Hide regions' : 'View regions'}
@@ -264,10 +352,10 @@ export function App() {
           )}
 
           {showRegions && (
-            <ul className="mt-2 space-y-1 text-xs text-neutral-500" data-testid="regions">
+            <ul style={{ marginTop: 8, display: 'grid', gap: 4, fontSize: 12 }} className="pa-faint" data-testid="regions">
               {summary.findings.map((finding) => (
                 <li key={`region-${finding.displayId}`}>
-                  <span className="font-mono">{finding.displayId}</span> — {finding.kind}
+                  <span style={{ fontFamily: 'monospace' }}>{finding.displayId}</span> — {finding.kind}
                   {finding.geometry !== undefined &&
                     ` · ${finding.geometry.width}×${finding.geometry.height}px`}
                   {finding.section !== undefined && ` · section ${finding.section}`}
@@ -285,10 +373,39 @@ export function App() {
 
       <VisualStatus />
       <AgentTask />
-      <TelemetryPanel />
-      <footer className="mt-6 border-t border-neutral-100 pt-3 text-xs text-neutral-400">
-        PrivAgent · SIH26171 · Private by design
-      </footer>
+      </div>
+
+      <div className="pa-tabpane" hidden={tab !== 'audit'} style={{ padding: '12px 14px' }}>
+        <p className="pa-section-label">Privacy audit</p>
+        <TelemetryPanel />
+      </div>
+
+      <div className="pa-tabpane" hidden={tab !== 'vault'} style={{ padding: '12px 14px' }}>
+        <p className="pa-section-label" style={{ marginBottom: 8 }}>Session vault</p>
+        <VaultPanel />
+      </div>
+
+      {summary?.blocked === true ? (
+        <footer className="pa-footer-blocked">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--pa-danger)', fontSize: 12, fontWeight: 600 }}>
+              🚫 Firewall blocked — 0 bytes transmitted
+            </span>
+          </div>
+        </footer>
+      ) : (
+        <footer className="pa-footer-ok">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ color: 'var(--pa-accent)', fontSize: 12, fontWeight: 600 }}>
+              ✓ Privacy Status: Airtight
+            </span>
+            <span className="pa-leak-badge" style={{ marginLeft: 'auto' }}>
+              0 BYTES LEAKED
+            </span>
+          </div>
+          {resultActionsLine}
+        </footer>
+      )}
     </main>
   );
 }
