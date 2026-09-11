@@ -51,7 +51,7 @@ const STATUS_TEXT: Record<AgentRunResult['status'], string> = {
 
 export function AgentTask() {
   const [task, setTask] = useState('');
-  const [plannerMode, setPlannerMode] = useState<'local' | 'gemini' | 'offline'>('local');
+  const [plannerMode, setPlannerMode] = useState<'local' | 'gemini' | 'offline'>('gemini');
   const [state, setState] = useState<RunState>('idle');
   const [result, setResult] = useState<AgentRunResult | null>(null);
   const [liveLog, setLiveLog] = useState<string[]>([]);

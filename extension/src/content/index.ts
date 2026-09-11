@@ -83,7 +83,9 @@ function labelFor(el: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
  */
 function collectFieldStructure(): FieldStructure[] {
   const out: FieldStructure[] = [];
-  const nodes = document.querySelectorAll('input, textarea, select, button');
+  const nodes = document.querySelectorAll(
+    'input, textarea, select, button, [role="button"], [role="textbox"], [contenteditable="true"]',
+  );
   let fallback = 0;
 
   for (const el of Array.from(nodes)) {
@@ -170,7 +172,18 @@ function executeActionInPage(action: AgentAction): ExecuteActionResponse {
     if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
       if (el.disabled || el.readOnly) return { ok: false, code: 'DISABLED' };
       el.scrollIntoView({ block: 'center', behavior: 'auto' });
-      el.value = action.value;
+      // Use the native prototype setter so React's synthetic event system sees the change.
+      // A bare `el.value = x` bypasses React's internal fiber state on controlled inputs,
+      // causing the component to re-render with the OLD value and submit an empty field.
+      const nativeSetter =
+        el instanceof HTMLInputElement
+          ? Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
+          : Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      if (nativeSetter) {
+        nativeSetter.call(el, action.value);
+      } else {
+        el.value = action.value;
+      }
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true, code: 'OK' };

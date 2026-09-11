@@ -40,9 +40,9 @@ test('agent loop fills the form via aliases and submits', async ({ extContext, p
   // Playwright's fill() can activate the panel TAB (in production the panel is a real
   // side panel and the web page stays active). Restore that invariant before running.
   await page.bringToFront();
-  // Demo default: Local AI planner ON. e2e runs offline, so select the
+  // Demo default: Gemini planner ON (backend). e2e runs offline, so select the
   // deterministic planner explicitly.
-  await expect(panel.getByTestId('planner-mode-local')).toBeChecked();
+  await expect(panel.getByTestId('planner-mode-gemini')).toBeChecked();
   await panel.getByTestId('planner-mode-offline').check();
   await panel.getByRole('button', { name: 'Run agent task' }).dispatchEvent('click');
 
