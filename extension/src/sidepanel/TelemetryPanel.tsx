@@ -103,7 +103,7 @@ export function TelemetryPanel() {
               </thead>
               <tbody>
                 {summary.timings.map((row) => (
-                  <tr key={row.name} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <tr key={row.name} style={{ borderTop: '1px solid var(--pa-border)' }}>
                     <td style={{ padding: '2px 0', fontFamily: 'monospace', color: 'var(--pa-text)' }}>{row.name}</td>
                     <td className="pa-muted">{row.count}</td>
                     <td className="pa-muted">{row.p50Ms.toFixed(1)}</td>
@@ -137,7 +137,7 @@ export function TelemetryPanel() {
             Export JSON
           </button>
           <button
-            style={{ fontSize: 12, borderRadius: 8, padding: '8px 14px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: 'var(--pa-secondary)' }}
+            style={{ fontSize: 12, borderRadius: 8, padding: '8px 14px', background: 'color-mix(in srgb, var(--pa-secondary) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--pa-secondary) 20%, transparent)', color: 'var(--pa-secondary)' }}
             data-testid="report-export"
             onClick={() => {
               void exportReportAsJSON().then((started) => {
