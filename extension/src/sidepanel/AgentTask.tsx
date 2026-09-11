@@ -18,6 +18,8 @@ import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
 import { formatAgentStep, formatTerminalLine, STEP_LOG_OPENERS } from './agent-step-log';
 import { loadTaskState, shouldResumeTask } from '../agent/task-state';
+import { loadStore, touchEntry } from '../piv/store';
+import { categoryFromAlias, registrableEntries } from '../piv/agent';
 import { maskValue } from './reveal';
 import { getLastCloudPayload, getLastCloudPayloadMeta } from '../agent/remote';
 import { classifyFromStatus } from '../debug/errors';
@@ -138,6 +140,31 @@ export function AgentTask() {
       const provider = plannerMode === 'offline' ? undefined : (plannerMode === 'local' ? 'ollama' : 'gemini');
 
       const sessionId = sessionIdOverride ?? `agent-${Date.now()}`;
+      // PIV: load the user's persistent entries into the ephemeral session vault
+      // (in-memory only; wiped with the session). Values never leave the device.
+      try {
+        const pivEntries = registrableEntries((await loadStore()).entries);
+        for (const entry of pivEntries) {
+          try {
+            await vault.put(
+              {
+                alias: entry.aliasHint,
+                category: categoryFromAlias(entry.aliasHint),
+                sessionId,
+                createdAt: Date.now(),
+              },
+              entry.value,
+            );
+          } catch {
+            // ignore single bad entry — never fail a run on PIV data
+          }
+        }
+        if (pivEntries.length > 0) {
+          setLiveLog((prev) => [...prev, `🔑 Loaded ${pivEntries.length} personal data entries from vault`]);
+        }
+      } catch {
+        // ignore — PIV unavailable means a normal vault-only run
+      }
       const runResult = await runAgentLoop({
         task: objective,
         sessionId,
@@ -148,7 +175,11 @@ export function AgentTask() {
         bridge: createActionBridge({
           vault,
           policy: () => ({ ...DEFAULT_ACTION_POLICY, navigationAllowlist: [...getNavigationAllowlist()] }),
-          onAliasResolved: (alias) => recordEvent({ type: 'ALIAS_RESOLVED', alias }),
+          onAliasResolved: (alias) => {
+            recordEvent({ type: 'ALIAS_RESOLVED', alias });
+            // Fire-and-forget usage stamp: never awaited, never throws into the run.
+            touchEntry(alias);
+          },
         }),
         firewall,
         scan: () => chrome.runtime.sendMessage({ type: SCAN_PAGE }) as Promise<ScanPageResponse>,
