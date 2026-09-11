@@ -10,6 +10,7 @@ import { useState, useSyncExternalStore } from 'react';
 import { VisualStatus } from './VisualStatus';
 import { AgentTask } from './AgentTask';
 import { VaultPanel } from './VaultPanel';
+import { PIVPanel } from '../piv/panel';
 import { detectPII } from '../perception/pii';
 import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
@@ -33,7 +34,7 @@ import { useEffect } from 'react';
 
 type ScanState = 'idle' | 'scanning' | 'done' | 'restricted' | 'error';
 
-type PanelTab = 'run' | 'audit' | 'vault';
+type PanelTab = 'run' | 'audit' | 'vault' | 'mydata';
 
 /**
  * Scroll the active tab to document y `top` for bounded below-the-fold band capture, then
@@ -280,6 +281,14 @@ export function App() {
         >
           🔐 Vault
         </button>
+        <button
+          className={tab === 'mydata' ? 'pa-tab pa-tab-active' : 'pa-tab'}
+          data-testid="tab-mydata"
+          aria-pressed={tab === 'mydata'}
+          onClick={() => setTab('mydata')}
+        >
+          👤 My Data
+        </button>
       </nav>
 
       <div className="pa-tabpane" hidden={tab !== 'run'} style={{ padding: '12px 14px' }}>
@@ -383,6 +392,10 @@ export function App() {
       <div className="pa-tabpane" hidden={tab !== 'vault'} style={{ padding: '12px 14px' }}>
         <p className="pa-section-label" style={{ marginBottom: 8 }}>Session vault</p>
         <VaultPanel />
+      </div>
+
+      <div className="pa-tabpane" hidden={tab !== 'mydata'} style={{ padding: '12px 14px' }}>
+        <PIVPanel />
       </div>
 
       {summary?.blocked === true ? (

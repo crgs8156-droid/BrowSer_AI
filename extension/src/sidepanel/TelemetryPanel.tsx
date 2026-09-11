@@ -15,6 +15,7 @@ import {
   type AuditEntry,
 } from '../audit/log';
 import { exportReportAsJSON } from '../report/generate';
+import { loadStore } from '../piv/store';
 import {
   getTelemetryVersion,
   sessionTelemetry,
@@ -27,12 +28,38 @@ export function TelemetryPanel() {
   // Phase 3 — session audit log, refreshed every 2s (cheap local read).
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
   const [reportToast, setReportToast] = useState<string | null>(null);
+  // PIV status: counts only (entry count + used categories from audit), never values.
+  const [pivTotal, setPivTotal] = useState<number | null>(null);
+  const [pivUsed, setPivUsed] = useState<string[]>([]);
+  const [pivUnused, setPivUnused] = useState<string[]>([]);
   useEffect(() => {
     let alive = true;
     const refresh = (): void => {
       void getAuditLog().then((entries) => {
         if (alive) setAuditEntries(entries);
       });
+      // PIV status rides the same 2s tick: entry count from local storage,
+      // used categories from value-free alias_created audit entries.
+      void (async () => {
+        try {
+          const [entries, store] = await Promise.all([getAuditLog(), loadStore()]);
+          if (!alive) return;
+          const used = new Set<string>();
+          for (const entry of entries) {
+            if (entry.type !== 'alias_created') continue;
+            const match = /^Alias USER_([A-Z]+)_\d+ created$/.exec(entry.detail);
+            if (match?.[1] !== undefined) used.add(match[1]);
+          }
+          const all = new Set(
+            store.entries.map((e) => e.aliasHint.split('_')[1] ?? 'CUSTOM'),
+          );
+          setPivTotal(store.entries.length);
+          setPivUsed([...used].sort());
+          setPivUnused([...all].filter((a) => !used.has(a)).sort());
+        } catch {
+          // ignore — status is best-effort
+        }
+      })();
     };
     refresh();
     const timer = setInterval(refresh, 2000);
@@ -163,6 +190,29 @@ export function TelemetryPanel() {
               </li>
             ))}
           </ul>
+        )}
+      </div>
+
+      <div className="pa-audit-card" style={{ marginTop: 8, marginBottom: 0 }} aria-label="PIV Status" data-testid="piv-status">
+        <p className="pa-section-label">🗄️ PIV Status</p>
+        {pivTotal === null || pivTotal === 0 ? (
+          <p className="pa-faint" style={{ marginTop: 4, fontSize: 12 }}>
+            No personal data entries yet — open the My Data tab to add some.
+          </p>
+        ) : (
+          <>
+            <p style={{ marginTop: 4, fontSize: 12, color: 'var(--pa-text)' }}>
+              {pivTotal} personal data {pivTotal === 1 ? 'entry' : 'entries'} available
+            </p>
+            <p className="pa-muted" style={{ marginTop: 2, fontSize: 12 }}>
+              Last agent run used: {pivUsed.length > 0 ? `${pivUsed.join(', ')} (${pivUsed.length} of ${pivTotal})` : 'none yet'}
+            </p>
+            {pivUnused.length > 0 && (
+              <p className="pa-faint" style={{ marginTop: 2, fontSize: 12 }}>
+                Entries never used: {pivUnused.join(', ')} (update recommended)
+              </p>
+            )}
+          </>
         )}
       </div>
     </section>
