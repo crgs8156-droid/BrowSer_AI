@@ -52,6 +52,9 @@ export interface PageFixture {
 }
 
 export interface Fixtures {
+  // NOTE: fixture schema version (fixtures.json "version": 1) is INDEPENDENT of
+  // the extension release version (package.json/manifest 0.1.0). Fixture files
+  // are never bumped with releases — do not "fix" the 1 vs 0.1.0 difference.
   version: number;
   note: string;
   pages: PageFixture[];

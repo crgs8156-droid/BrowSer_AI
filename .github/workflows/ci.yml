@@ -19,7 +19,7 @@ jobs:
       # Build BEFORE tests: tests/integration/built-extension.test.ts validates the
       # BUILT dist/ manifest, so a clean checkout must have one on disk first.
       - run: npm run build
-      - run: npm test
+      - run: npm test -- --coverage --coverage-threshold=60
 
   backend:
     runs-on: ubuntu-latest

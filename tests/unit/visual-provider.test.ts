@@ -195,3 +195,28 @@ describe('region cache', () => {
     expect(MAX_CACHE_ENTRIES).toBeGreaterThan(0);
   });
 });
+
+describe('progressive model state (Phase 6A)', () => {
+  it('reports not_loaded before any provider resolves (startup stays instant)', async () => {
+    const { visualProviderModelState } = await import(
+      '../../extension/src/perception/visual/providers/registry'
+    );
+    expect(visualProviderModelState()).toBe('not_loaded');
+  });
+
+  it('heuristic provider reports not_loaded (no model to load)', () => {
+    expect(createPixelStatsProvider().getModelState?.()).toBe('not_loaded');
+  });
+
+  it('onnx provider starts not_loaded and loads nothing on construction', async () => {
+    const { createVisionOnnxProvider } = await import(
+      '../../extension/src/perception/visual/providers/vision-onnx'
+    );
+    const provider = createVisionOnnxProvider({
+      loadRuntime: async () => {
+        throw new Error('must not load on construction');
+      },
+    });
+    expect(provider.getModelState?.()).toBe('not_loaded');
+  });
+});

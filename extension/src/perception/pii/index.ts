@@ -1,4 +1,5 @@
 import type { SensitiveEntity } from '../../types/contracts';
+import { normalizeNumerals } from '../../sanitizer/normalize';
 
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const PHONE_REGEX = /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
@@ -46,8 +47,16 @@ export function detectPII(text: string): SensitiveEntity[] {
   if (!text || typeof text !== 'string') return [];
 
   const entities: SensitiveEntity[] = [];
+  // Phase 2 — detect on a normalized copy (Devanagari digits → ASCII), but map
+  // every hit back to the ORIGINAL slice so downstream literal redaction and the
+  // vault still operate on the true page text. Mapping is 1:1 length-preserving.
+  const normalized = normalizeNumerals(text);
+  const originalOf = (match: RegExpMatchArray): string => {
+    if (match.index === undefined) return match[0] ?? '';
+    return text.slice(match.index, match.index + (match[0]?.length ?? 0));
+  };
 
-  for (const match of text.matchAll(EMAIL_REGEX)) {
+  for (const match of normalized.matchAll(EMAIL_REGEX)) {
     if (match.index !== undefined && match[0]) {
       entities.push({
         id: `email-${match.index}`,
@@ -55,12 +64,12 @@ export function detectPII(text: string): SensitiveEntity[] {
         confidence: 1,
         reasons: ['Matched pattern for EMAIL'],
         source: 'DOM',
-        text: match[0],
+        text: originalOf(match),
       } as unknown as SensitiveEntity);
     }
   }
 
-  for (const match of text.matchAll(PHONE_REGEX)) {
+  for (const match of normalized.matchAll(PHONE_REGEX)) {
     if (match.index !== undefined && match[0]) {
       entities.push({
         id: `phone-${match.index}`,
@@ -68,12 +77,12 @@ export function detectPII(text: string): SensitiveEntity[] {
         confidence: 1,
         reasons: ['Matched pattern for PHONE_NUMBER'],
         source: 'DOM',
-        text: match[0],
+        text: originalOf(match),
       } as unknown as SensitiveEntity);
     }
   }
 
-  for (const match of text.matchAll(CREDIT_CARD_REGEX)) {
+  for (const match of normalized.matchAll(CREDIT_CARD_REGEX)) {
     if (match.index !== undefined && match[0]) {
       const rawDigits = match[0].replace(/\D/g, '');
       if (isValidLuhn(rawDigits)) {
@@ -83,13 +92,13 @@ export function detectPII(text: string): SensitiveEntity[] {
           confidence: 1,
           reasons: ['Matched pattern for PAYMENT_CARD'],
           source: 'DOM',
-          text: match[0],
+          text: originalOf(match),
         } as unknown as SensitiveEntity);
       }
     }
   }
 
-  for (const match of text.matchAll(CREDENTIAL_REGEX)) {
+  for (const match of normalized.matchAll(CREDENTIAL_REGEX)) {
     if (match.index !== undefined && match[0]) {
       entities.push({
         id: `secret-${match.index}`,
@@ -97,12 +106,12 @@ export function detectPII(text: string): SensitiveEntity[] {
         confidence: 1,
         reasons: ['Matched pattern for CREDENTIAL'],
         source: 'DOM',
-        text: match[0],
+        text: originalOf(match),
       } as unknown as SensitiveEntity);
     }
   }
 
-  for (const match of text.matchAll(AADHAAR_REGEX)) {
+  for (const match of normalized.matchAll(AADHAAR_REGEX)) {
     if (match.index !== undefined && match[0]) {
       entities.push({
         id: `aadhaar-${match.index}`,
@@ -110,12 +119,12 @@ export function detectPII(text: string): SensitiveEntity[] {
         confidence: 1,
         reasons: ['Matched pattern for AADHAAR'],
         source: 'DOM',
-        text: match[0],
+        text: originalOf(match),
       } as unknown as SensitiveEntity);
     }
   }
 
-  for (const match of text.matchAll(PAN_REGEX)) {
+  for (const match of normalized.matchAll(PAN_REGEX)) {
     if (match.index !== undefined && match[0]) {
       entities.push({
         id: `pan-${match.index}`,
@@ -123,7 +132,7 @@ export function detectPII(text: string): SensitiveEntity[] {
         confidence: 1,
         reasons: ['Matched pattern for PAN'],
         source: 'DOM',
-        text: match[0],
+        text: originalOf(match),
       } as unknown as SensitiveEntity);
     }
   }
@@ -131,21 +140,21 @@ export function detectPII(text: string): SensitiveEntity[] {
   // Email spans first: a UPI candidate inside a real email address (user@host.com)
   // belongs to the email, not to a VPA.
   const emailSpans: { start: number; end: number }[] = [];
-  for (const match of text.matchAll(EMAIL_REGEX)) {
+  for (const match of normalized.matchAll(EMAIL_REGEX)) {
     if (match.index !== undefined && match[0]) {
       emailSpans.push({ start: match.index, end: match.index + match[0].length });
     }
   }
-  for (const match of text.matchAll(UPI_REGEX)) {
+  for (const match of normalized.matchAll(UPI_REGEX)) {
     if (match.index === undefined || !match[0]) continue;
     const start = match.index;
     const end = start + match[0].length;
     // Part of a larger email address (e.g. user@host in user@host.com) — skip.
-    if (text[end] === '.') continue;
+    if (normalized[end] === '.') continue;
     if (emailSpans.some((s) => start < s.end && end > s.start)) continue;
     const domain = (match[0].split('@')[1] ?? '').toLowerCase();
     const knownHandle = UPI_HANDLES.has(domain);
-    const context = text.slice(Math.max(0, start - 24), start);
+    const context = normalized.slice(Math.max(0, start - 24), start);
     if (!knownHandle && !UPI_CONTEXT.test(context)) continue;
     entities.push({
       id: `upi-${start}`,
@@ -153,7 +162,7 @@ export function detectPII(text: string): SensitiveEntity[] {
       confidence: 1,
       reasons: ['Matched pattern for UPI'],
       source: 'DOM',
-      text: match[0],
+      text: originalOf(match),
     } as unknown as SensitiveEntity);
   }
 
@@ -174,14 +183,21 @@ export function detectLabeledValues(text: string): SensitiveEntity[] {
   if (!text || typeof text !== 'string') return [];
 
   const entities: SensitiveEntity[] = [];
+  // Phase 2 — same normalize-then-map-back as detectPII (see above).
+  const normalized = normalizeNumerals(text);
+  const originalGroup = (match: RegExpMatchArray, group: string | undefined): string | undefined => {
+    if (match.index === undefined || group === undefined) return group;
+    const start = match.index + (match[0] ?? '').indexOf(group);
+    return text.slice(start, start + group.length);
+  };
 
   // Person names / patients / students introduced by a label. Names contain no
   // commas — the value ends at a section separator (·), a comma, a sentence dot
   // followed by space, or EOL.
   const NAME_LABELED =
     /\b(?:full\s+name|name|patient|student)\s*[:-]\s*([^\n·,]{3,60}?)(?=\s*[·,]|\.\s|\n|$)/gi;
-  for (const match of text.matchAll(NAME_LABELED)) {
-    const value = match[1]?.trim();
+  for (const match of normalized.matchAll(NAME_LABELED)) {
+    const value = originalGroup(match, match[1])?.trim();
     if (!value || value.length < 3) continue;
     const keyword = match[0].split(/[:-]/)[0]?.trim().toLowerCase() ?? '';
     entities.push({
@@ -197,8 +213,8 @@ export function detectLabeledValues(text: string): SensitiveEntity[] {
   // Postal addresses introduced by a label — commas are legitimate inside an address.
   const ADDRESS_LABELED =
     /\baddress\s*[:-]\s*([^\n·]{3,80}?)(?=\s*[·\n]|\.\s|\n|$)/gi;
-  for (const match of text.matchAll(ADDRESS_LABELED)) {
-    const value = match[1]?.trim();
+  for (const match of normalized.matchAll(ADDRESS_LABELED)) {
+    const value = originalGroup(match, match[1])?.trim();
     if (!value || value.length < 3) continue;
     entities.push({
       id: `labeled-address-${match.index}`,
@@ -215,8 +231,8 @@ export function detectLabeledValues(text: string): SensitiveEntity[] {
   // "api_key BENCH_KEY_001" or "Access code: BENCH_SECRET_001".
   const CREDENTIAL_LABELED =
     /\b(?:api[_-]?key|access[_-]?token|token|secret|password|passwd|key|code|otp)\s*[:=\s]\s*["']?([A-Za-z0-9\-_.~+/]{6,})["']?/gi;
-  for (const match of text.matchAll(CREDENTIAL_LABELED)) {
-    const value = match[1];
+  for (const match of normalized.matchAll(CREDENTIAL_LABELED)) {
+    const value = originalGroup(match, match[1]);
     if (!value || value.length < 6) continue;
     entities.push({
       id: `labeled-credential-${match.index}`,

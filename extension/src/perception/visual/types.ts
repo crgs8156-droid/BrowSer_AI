@@ -65,6 +65,11 @@ export interface VisualProvider {
   ): Promise<VisualObservation[]>;
   /** Release models/workers/GPU buffers. Called by the service on dispose. */
   dispose?(): void | Promise<void>;
+  /**
+   * Phase 6A — progressive-load state for model-backed providers.
+   * Absent = heuristic provider with nothing to load (treated as not_loaded).
+   */
+  getModelState?(): 'not_loaded' | 'loading' | 'ready' | 'failed';
 }
 
 /** Lazy constructor — nothing heavy may run until this is actually invoked. */

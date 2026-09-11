@@ -96,3 +96,18 @@ export async function resetVisualProviders(): Promise<void> {
   factory = null;
   analysisEdge = null;
 }
+
+/**
+ * Phase 6A — current model-load state WITHOUT instantiating anything.
+ * `not_loaded` before first resolution (startup stays instant); delegates to
+ * the live provider once one exists; heuristic providers report not_loaded.
+ */
+export function visualProviderModelState(): 'not_loaded' | 'loading' | 'ready' | 'failed' {
+  try {
+    const probe = instance?.getModelState?.();
+    if (probe !== undefined) return probe;
+  } catch {
+    // ignore - a failing probe must never break the panel
+  }
+  return 'not_loaded';
+}

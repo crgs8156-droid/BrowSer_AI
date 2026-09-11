@@ -18,6 +18,15 @@ import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
 import { formatAgentStep, formatTerminalLine, STEP_LOG_OPENERS } from './agent-step-log';
 import { loadTaskState, shouldResumeTask } from '../agent/task-state';
+import {
+  addTemplate,
+  deleteTemplate,
+  getDefaultTemplates,
+  instructionForTemplate,
+  loadTemplates,
+  saveTemplates,
+  type TaskTemplate,
+} from '../templates';
 
 type RunState = 'idle' | 'running' | 'done';
 
@@ -31,6 +40,8 @@ const STATUS_TEXT: Record<AgentRunResult['status'], string> = {
   restricted: '⚠️ Restricted page',
   not_enforced: '⚠️ Could not fully sanitize this page — stopped',
   firewall_blocked: '🛡 Firewall blocked the outbound request',
+  paused_captcha: '⚠️ CAPTCHA detected — solve it and click Resume',
+  stopped: '⏹ Stopped',
   error: '✕ Task failed',
 };
 
@@ -41,6 +52,10 @@ export function AgentTask() {
   const [result, setResult] = useState<AgentRunResult | null>(null);
   const [liveLog, setLiveLog] = useState<string[]>([]);
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  const [templates, setTemplates] = useState<TaskTemplate[]>(() => getDefaultTemplates());
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [customName, setCustomName] = useState('');
+  const [customInstruction, setCustomInstruction] = useState('');
   const navResolver = useRef<((approved: boolean) => void) | null>(null);
 
   const originDisplay = (url: string): string => {
@@ -144,6 +159,12 @@ export function AgentTask() {
     }
   };
 
+  useEffect(() => {
+    void loadTemplates().then((stored) => {
+      setTemplates(stored);
+    });
+  }, []);
+
   const resumed = useRef(false);
   useEffect(() => {
     if (resumed.current) return;
@@ -163,6 +184,97 @@ export function AgentTask() {
       <p className="mt-1 text-xs text-neutral-500">
         The planner sees sanitized aliases only; values are resolved locally at execution.
       </p>
+
+      <div className="mt-2 flex gap-1 overflow-x-auto pb-1" data-testid="template-chips">
+        {templates.map((tpl) => (
+          <span key={tpl.id} className="flex shrink-0 items-center gap-1">
+            <button
+              className="rounded-full border border-neutral-300 bg-neutral-50 px-2 py-0.5 text-xs hover:bg-neutral-100"
+              data-testid={`template-${tpl.id}`}
+              title={tpl.description}
+              disabled={state === 'running'}
+              onClick={() => {
+                const instruction = instructionForTemplate(templates, tpl.id);
+                if (instruction !== null) setTask(instruction);
+              }}
+            >
+              {tpl.icon} {tpl.name}
+            </button>
+            {!getDefaultTemplates().some((d) => d.id === tpl.id) && (
+              <button
+                className="text-xs text-neutral-400 hover:text-red-600"
+                data-testid={`template-delete-${tpl.id}`}
+                title="Delete custom template"
+                disabled={state === 'running'}
+                onClick={() => {
+                  setTemplates((prev) => {
+                    const next = deleteTemplate(prev, tpl.id);
+                    void saveTemplates(next);
+                    return next;
+                  });
+                }}
+              >
+                ×
+              </button>
+            )}
+          </span>
+        ))}
+        <button
+          className="shrink-0 rounded-full border border-dashed border-neutral-300 px-2 py-0.5 text-xs text-neutral-500"
+          data-testid="template-custom-open"
+          disabled={state === 'running'}
+          onClick={() => setShowCustomModal(true)}
+        >
+          + Custom
+        </button>
+      </div>
+
+      {showCustomModal && (
+        <div className="mt-2 rounded border border-neutral-300 p-2" data-testid="template-custom-modal">
+          <input
+            className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+            placeholder="Template name"
+            data-testid="template-custom-name"
+            value={customName}
+            onChange={(e) => setCustomName(e.target.value)}
+          />
+          <textarea
+            className="mt-1 w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+            placeholder="Instruction (no personal values — categories only)"
+            data-testid="template-custom-instruction"
+            value={customInstruction}
+            onChange={(e) => setCustomInstruction(e.target.value)}
+          />
+          <div className="mt-1 flex gap-2">
+            <button
+              className="rounded bg-emerald-600 px-2 py-0.5 text-xs text-white"
+              data-testid="template-custom-save"
+              disabled={customName.trim().length === 0 || customInstruction.trim().length === 0}
+              onClick={() => {
+                const next = addTemplate(templates, {
+                  name: customName.trim(),
+                  icon: '\u2795',
+                  instruction: customInstruction.trim(),
+                  description: 'Custom template',
+                });
+                setTemplates(next);
+                void saveTemplates(next);
+                setCustomName('');
+                setCustomInstruction('');
+                setShowCustomModal(false);
+              }}
+            >
+              Save
+            </button>
+            <button
+              className="rounded bg-neutral-200 px-2 py-0.5 text-xs"
+              onClick={() => setShowCustomModal(false)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <input
         className="mt-2 w-full rounded border border-neutral-300 px-2 py-1 text-sm"
@@ -264,13 +376,40 @@ export function AgentTask() {
         </div>
       )}
 
+      {state === 'done' && result !== null && result.status === 'paused_captcha' && (
+        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs" data-testid="captcha-banner">
+          <p>⚠️ CAPTCHA detected — solve it and click Resume</p>
+          <div className="mt-1 flex gap-2">
+            <button
+              className="rounded bg-emerald-600 px-2 py-0.5 text-white"
+              data-testid="captcha-resume"
+              onClick={() => void run()}
+            >
+              Resume
+            </button>
+            <button
+              className="rounded bg-neutral-300 px-2 py-0.5"
+              data-testid="captcha-cancel"
+              onClick={() => {
+                setResult(null);
+                setState('idle');
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {state === 'done' && result !== null && (
         <div className="mt-3" data-testid="agent-result">
           <p
             className={
               result.status === 'completed'
                 ? 'font-medium text-green-700'
-                : 'font-medium text-red-600'
+                : result.status === 'paused_captcha'
+                  ? 'font-medium text-amber-600'
+                  : 'font-medium text-red-600'
             }
           >
             {STATUS_TEXT[result.status]}

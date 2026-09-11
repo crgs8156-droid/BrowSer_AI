@@ -4,7 +4,8 @@
 // counts and timings — never page text, never OCR output, never pixels, never
 // thumbnails. Region geometry is shown because coordinates are not content.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { visualProviderModelState } from '../perception/visual/providers/registry';
 import { createVisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionService } from '../perception/visual';
 import type { VisualPerceptionResult, VisualPerceptionStatus } from '../types/contracts';
@@ -61,6 +62,14 @@ const RESTRICTED_RESULT: VisualPerceptionResult = {
 
 export function VisualStatus() {
   const [running, setRunning] = useState(false);
+  // Phase 6A — progressive engine state (startup shows nothing: not_loaded).
+  const [engineState, setEngineState] = useState(() => visualProviderModelState());
+  useEffect(() => {
+    setEngineState(visualProviderModelState());
+    if (!running) return;
+    const timer = setInterval(() => setEngineState(visualProviderModelState()), 500);
+    return () => clearInterval(timer);
+  }, [running]);
   const [result, setResult] = useState<VisualPerceptionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -84,6 +93,7 @@ export function VisualStatus() {
       const result = await getService().run(response.snapshot);
       recordVisualStats(result);
       setResult(result);
+      setEngineState(visualProviderModelState());
     } catch {
       setError('Visual perception could not run.');
     } finally {
@@ -107,6 +117,22 @@ export function VisualStatus() {
       </button>
 
       {error !== null && <p className="mt-2 text-red-500">{error}</p>}
+
+      {engineState === 'loading' && (
+        <p className="mt-2 text-xs text-neutral-500" data-testid="vision-engine-state">
+          ⏳ Vision engine loading (11MB)...
+        </p>
+      )}
+      {engineState === 'ready' && (
+        <p className="mt-2 text-xs text-green-700" data-testid="vision-engine-state">
+          ✅ Vision engine ready
+        </p>
+      )}
+      {engineState === 'failed' && (
+        <p className="mt-2 text-xs text-amber-600" data-testid="vision-engine-state">
+          ⚠️ Vision engine unavailable — using heuristics
+        </p>
+      )}
 
       {result !== null && (
         <div className="mt-3 text-xs">

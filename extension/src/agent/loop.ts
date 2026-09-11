@@ -33,6 +33,7 @@ import { getProgressFingerprint } from './progress';
 import { classifyRisk } from './risk';
 import type { RiskLevel } from './risk';
 import { clearTaskState, saveTaskState } from './task-state';
+import { clearAuditLog, logAuditEvent } from '../audit/log';
 
 /** One executed step, recorded for the UI/audit. Alias-level only — never a resolved value. */
 export interface AgentStepRecord {
@@ -53,6 +54,8 @@ export type AgentRunStatus =
   | 'restricted'
   | 'not_enforced'
   | 'firewall_blocked'
+  | 'paused_captcha'
+  | 'stopped'
   | 'error';
 
 export interface AgentRunResult {
@@ -155,6 +158,24 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   // call touches the vault, so the wipe never runs mid-run.
   const stop = (status: AgentRunStatus, reason?: string): AgentRunResult => {
     options.onEvent?.({ type: 'STOP', code: reason ?? status, index: steps.length });
+    // Phase 3 — terminal audit events (codes only, never content).
+    try {
+      if (status === 'completed') {
+        logAuditEvent({
+          sessionId: options.sessionId,
+          type: 'task_complete',
+          detail: `Task completed in ${steps.length} steps, 0 bytes leaked`,
+        });
+      } else if (status === 'error') {
+        logAuditEvent({
+          sessionId: options.sessionId,
+          type: 'task_failed',
+          detail: `Task failed — ${reason ?? 'error'}`,
+        });
+      }
+    } catch {
+      // ignore - audit is best-effort
+    }
     // Part D — terminal persistence: completed clears (no resurrection on reload);
     // other terminals mark stopped (banner-eligible, never auto-resumed).
     try {
@@ -218,8 +239,45 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
       ...detectPII(observed.pageText),
       ...detectLabeledValues(observed.pageText),
     ];
+    // Phase 3 — audit: one value-free event per detected category.
+    try {
+      const counts = new Map<string, number>();
+      for (const e of entities) {
+        const cat = String(e.category ?? 'UNKNOWN').toUpperCase();
+        counts.set(cat, (counts.get(cat) ?? 0) + 1);
+      }
+      for (const [cat, n] of counts) {
+        logAuditEvent({
+          sessionId: options.sessionId,
+          type: 'pii_detected',
+          detail: `Detected USER_${cat} category (${n} instance${n === 1 ? '' : 's'})`,
+          stepNumber: index,
+        });
+      }
+    } catch {
+      // ignore - audit is best-effort
+    }
     // M7.5 — page-type classification (payment/auth pages force a SANITIZE floor).
     const visualContext = classifyPage(observed.structure, observed.pageText);
+    // Phase 1B — CAPTCHA: never continue automatically. Expected behavior, not an error.
+    if (visualContext.pageType === 'captcha') {
+      options.onEvent?.({ type: 'STOP', code: 'CAPTCHA_DETECTED', index: steps.length });
+      try {
+        logAuditEvent({
+          sessionId: options.sessionId,
+          type: 'captcha_detected',
+          detail: `CAPTCHA on step ${index} — agent paused`,
+          stepNumber: index,
+        });
+      } catch {
+        // ignore - audit is best-effort
+      }
+      return stop('paused_captcha', 'CAPTCHA_DETECTED');
+    }
+    // Phase 1C — error page: origin-only reason (never page text — it may carry PII).
+    if (visualContext.pageType === 'error_page') {
+      return stop('stopped', `Error page detected on step ${steps.length} — cannot continue (page: ${pageOriginFallback(observed)})`);
+    }
     const enforceStartedAt = performance.now();
     const enforcement = await enforcePrivacy({
       signals: { entities, visualContext, restricted: false },
@@ -269,7 +327,20 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
 
     // 4 — firewall: the only path to egress. A deny stops the loop, visibly.
     const verdict = await options.firewall.inspect(request);
-    if (!verdict.allowed) return stop('firewall_blocked', verdict.reason);
+    if (!verdict.allowed) {
+      try {
+        logAuditEvent({
+          sessionId: options.sessionId,
+          type: 'firewall_blocked',
+          detail: 'Outbound blocked: PII detected in payload',
+          stepNumber: index,
+          bytesBlocked: JSON.stringify(request).length,
+        });
+      } catch {
+        // ignore - audit is best-effort
+      }
+      return stop('firewall_blocked', verdict.reason);
+    }
 
     // 5 — plan.
     let planned: AgentAction[];
@@ -350,6 +421,34 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
       // ignore - persistence is best-effort
     }
 
+    if (ok) {
+      try {
+        const target = action.action === 'NAVIGATE' ? action.url : action.action === 'SCROLL' ? '' : action.target;
+        logAuditEvent({
+          sessionId: options.sessionId,
+          type: 'action_executed',
+          detail: `${action.action} on ${target}${actionValueSuffix(action)}`.trim(),
+          stepNumber: index,
+        });
+        if (action.action === 'NAVIGATE') {
+          let origin = action.url;
+          try {
+            origin = new URL(action.url).origin;
+          } catch {
+            origin = 'allowlisted url';
+          }
+          logAuditEvent({
+            sessionId: options.sessionId,
+            type: 'navigation',
+            detail: `Navigated to origin: ${origin}`,
+            stepNumber: index,
+          });
+        }
+      } catch {
+        // ignore - audit is best-effort
+      }
+    }
+
     if (!ok) return stop('error', outcome);
 
     // Navigation settle: the tab is loading a new document; give it a moment before
@@ -390,6 +489,24 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   return stop('max_steps', 'MAX_STEPS_REACHED');
 }
 
+const ALIAS_SHAPED = /^USER_[A-Z]+_\d+$/;
+
+function actionValueSuffix(action: AgentAction): string {
+  if ((action.action === 'TYPE' || action.action === 'SELECT') && ALIAS_SHAPED.test(action.value)) {
+    return ` (${action.value})`;
+  }
+  return '';
+}
+
+function pageOriginFallback(observed: ScanPageResponse): string {
+  try {
+    if (observed.snapshot?.url) return new URL(observed.snapshot.url).origin;
+  } catch {
+    // fall through to unknown
+  }
+  return 'unknown';
+}
+
 /**
  * Public entry point. The `finally` belt covers the one path `stop()` cannot:
  * an exception escaping the loop body itself (e.g. enforcement throwing outside
@@ -404,6 +521,16 @@ export async function runAgentLoop(options: AgentLoopOptions): Promise<AgentRunR
       await options.vault.clearSession?.(options.sessionId);
     } catch {
       // Best-effort cleanup; mappings die with the context regardless.
+    }
+    clearAuditLog();
+    try {
+      logAuditEvent({
+        sessionId: options.sessionId,
+        type: 'vault_wiped',
+        detail: 'Session vault wiped',
+      });
+    } catch {
+      // ignore - audit is best-effort
     }
   }
 }

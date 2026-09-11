@@ -41,6 +41,8 @@ and a fail-closed **privacy firewall** as the single outbound boundary.
 
 All numbers are produced by `npm run bench` + `npm run e2e` — measured, not claimed.
 
+Privacy reports are exportable from the Privacy Audit tab — JSON format, zero raw values stored.
+
 ## Prerequisites
 
 - Node.js 22 (project pins TypeScript to 5.9.3 for lint-tooling compatibility)

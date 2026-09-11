@@ -25,6 +25,17 @@ from .pii_scan import scan_pii
 
 SCROLL_AMOUNT = 720.0
 
+# Phase 2 — Devanagari numeral normalization (mirrors
+# `extension/src/sanitizer/normalize.ts`). Applied to model-controlled strings
+# BEFORE PII regex scanning so Hindi/regional digit variants are still caught.
+DEVANAGARI_DIGITS = str.maketrans('०१२३४५६७८९', '0123456789')
+
+
+def normalize_numerals(text: str | None) -> str | None:
+    if not text:
+        return text
+    return text.translate(DEVANAGARI_DIGITS)
+
 #: Full action vocabulary. Used as the allow-all default when a request leaves
 #: `availableActions` empty — the field only ever narrows this set, never widens it.
 ALL_ACTION_TYPES = ("CLICK", "TYPE", "SELECT", "SCROLL", "NAVIGATE")
@@ -88,10 +99,10 @@ def post_scan(result: PlanResult) -> None:
     """
     action = result.action
     leaked = scan_pii(
-        result.reason,
-        action.value if action else None,
-        action.selector if action else None,
-        action.url if action else None,
+        normalize_numerals(result.reason),
+        normalize_numerals(action.value) if action else None,
+        normalize_numerals(action.selector) if action else None,
+        normalize_numerals(action.url) if action else None,
     )
     if leaked:
         raise LLMPIILeakError()

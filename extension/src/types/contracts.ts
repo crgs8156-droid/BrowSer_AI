@@ -262,7 +262,7 @@ export type PolicySignalCategory =
 // text — never pixels — so its output is safe to cross the remote boundary.
 // ---------------------------------------------------------------------------
 
-export type VisualPageType = 'payment' | 'auth' | 'form' | 'medical' | 'general';
+export type VisualPageType = 'payment' | 'auth' | 'form' | 'medical' | 'general' | 'captcha' | 'error_page';
 
 export interface PageClassification {
   pageType: VisualPageType;

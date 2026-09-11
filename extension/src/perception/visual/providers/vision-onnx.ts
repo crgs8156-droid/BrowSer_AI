@@ -80,7 +80,7 @@ export interface VisionOnnxOptions {
 }
 
 /** Honest, inspectable state of the model for diagnostics and tests. */
-export type VisionModelState = 'idle' | 'loading' | 'ready' | 'failed';
+export type VisionModelState = 'not_loaded' | 'loading' | 'ready' | 'failed';
 
 function extensionUrl(path: string): string | null {
   if (typeof chrome === 'undefined' || chrome.runtime?.getURL === undefined) return null;
@@ -109,7 +109,7 @@ export function createVisionOnnxProvider(options: VisionOnnxOptions = {}): Visua
   const structural = createPixelStatsProvider();
   const confidence = options.confidence ?? DEFAULT_CONFIDENCE;
 
-  let state: VisionModelState = 'idle';
+  let state: VisionModelState = 'not_loaded';
   let session: VisionSession | null = null;
   let ort: VisionRuntime | null = null;
   let pending: Promise<VisionSession | null> | null = null;
@@ -201,6 +201,7 @@ export function createVisionOnnxProvider(options: VisionOnnxOptions = {}): Visua
   return {
     name: VISION_MODEL_NAME,
     source: 'vision',
+    getModelState: () => state,
 
     async analyze(
       raster: RasterRegion,
@@ -268,7 +269,7 @@ export function createVisionOnnxProvider(options: VisionOnnxOptions = {}): Visua
       session = null;
       ort = null;
       activeBackend = null;
-      state = 'idle';
+      state = 'not_loaded';
       if (active?.release !== undefined) {
         try {
           await active.release();

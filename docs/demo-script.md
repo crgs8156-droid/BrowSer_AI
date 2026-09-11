@@ -1,39 +1,48 @@
-# PrivAgent — 5-minute demonstration script (blueprint §15, adapted to M7)
+# PrivAgent — 3-minute demonstration script (M10)
 
-Every step below maps to something that exists and is tested. Synthetic data only
-(blueprint §15 rule: never real personal data). Rehearse with a fresh `npm run build`
-and the unpacked `dist/` loaded from `chrome://extensions`.
+Every step below maps to verified extension behavior (vitest + e2e green).
+Synthetic data only — never real personal data. Rehearse with a fresh
+`npm run build` and the unpacked `dist/` loaded from `chrome://extensions`.
+Default planner for the demo: **Offline (deterministic)** — no backend, no key,
+no network. (Gemini/Ollama modes use the same sanitized contract.)
 
-## Setup (before the timer)
+## Minute 1 — Problem, privacy status, one task
 
-1. `npm run build` → load `dist/` unpacked.
-2. Serve the benchmark form pages: `npx serve benchmark` is NOT needed — open any of
-   the synthetic form pages used by the e2e suite (see
-   `tests/e2e/bench-tasks.spec.ts` for the exact HTML), or any page with a form.
-3. Have `benchmark/reports/latest.md` open in a second window.
+1. Open the side panel on any ordinary form page. The **Scan** section shows the
+   privacy status: sensitive counts with `USER_EMAIL_1`-style aliases, never raw
+   values (leakage sentinel: 0%).
+2. In **Agent task**, click a template chip if one fits (e.g. Login), or type one
+   instruction, e.g. "go to ilovepdf, log in, compress a PDF".
+3. Click **Run agent task**. The step log opens with "Scanning page...",
+   "Shielding fields (local)...", "Planning action...".
 
-## Script
+## Minute 2 — Live execution with approval
 
-| Time | Demo moment | What you actually do | Judge takeaway |
-| --- | --- | --- | --- |
-| 0:00–0:30 | The problem: an AI agent normally sees everything on the page. | Talk over a normal autofilled form: the agent's context would contain the raw email, phone, card. | Problem is clear. |
-| 0:30–1:00 | Realistic synthetic form. | Open the registration-style page (name/email/phone). | Realistic use case. |
-| 1:00–1:30 | Local detection + sanitization. | Click **Scan Page** in the PrivAgent side panel → show the sanitized summary: sensitive counts, `USER_EMAIL_1`-style aliases, no raw values in the UI. | Perception works, locally. |
-| 1:30–2:00 | The alias mechanism. | Emphasize: the mapping alias→real value lives ONLY in the in-memory vault — wiped on session end, never persisted, never logged (canary-tested). | Novel privacy mechanism. |
-| 2:00–3:00 | The agent completes the task on sanitized context. | Type *"fill the form with my details and submit"* into the **Agent task** box, click **Run agent task**. The step log shows `TYPE (#email) → executed`, `CLICK (#submit) → executed` — the form fills with the REAL values resolved locally at execution time, and the page reports submission. | Utility is preserved. |
-| 3:00–4:00 | Privacy is measured, not claimed. | Show the leakage sentinel: benchmark canaries (`BENCH_*`) searched in every outbound request and step record — **leakage rate 0%**; credential-bearing pages are fail-closed blocked with **0 bytes** transmitted. | Measured security claim. |
-| 4:00–4:30 | The trade-off. | Show the §11 comparison table: full redaction destroys **all** fillable slots; PrivAgent preserves **all** slots at comparable payload size. | PrivAgent solves the privacy–utility problem. |
-| 4:30–5:00 | Benchmark + architecture. | Show `benchmark/reports/latest.md` (recall 100%, false positives 0%, task success 100%, per-stage latency) and the one-diagram architecture (single egress through the firewall). | Research + engineering maturity. |
+4. The step log appends in real time (`TYPE on #email`, `CLICK on #submit` —
+   alias-level targets only; TYPE values are never rendered).
+5. Cross-site navigation triggers the approval dialog: "Agent wants to navigate
+   to {origin} — allow? [Yes/No]". Click **Allow** — the origin joins the
+   session allowlist; without approval the loop stops fail-closed.
+6. The agent fills the login form (resolved locally at execution time),
+   "0 BYTES LEAKED" holds throughout, login completes, and the loop continues
+   on the new page automatically (same-origin needs no approval).
+7. If a CAPTCHA appears, the loop pauses with a yellow banner (expected
+   behavior, not an error) — solve it manually, click **Resume**.
 
-## Recommended closing line (blueprint §15)
+## Minute 3 — Proof: audit log and report
 
-> "An AI agent should be able to act on your behalf without needing to know who you are."
+8. Open the **Telemetry** section → **Session Log**: timestamped entries for
+   every detection, alias, action, navigation, and block of the run.
+9. Click **Export Report** → `privagent-report-{date}.json` downloads, toast
+   confirms "0 raw values included".
+10. Open the JSON: `bytesLeaked: 0`, protected categories listed, audit trail
+    attached, disclaimer "Raw values were never stored".
 
-## Fallbacks
+> "Raw values never left this machine."
 
-- If a scan reports `Restricted page` on a `chrome://` page: that IS the product
-  failing closed — say so and open a normal page.
-- If the agent task stops with `⛔ Blocked`: the page carried a critical credential —
-  the fail-closed gate; demo it on a page WITHOUT a visible password/token.
-- Network-independent: the deterministic planner runs fully on-device, so the demo
-  works with no internet.
+## Fallbacks (all are the product working as designed)
+
+- `Restricted page` on `chrome://`/PDFs: fail-closed — open a normal page.
+- `Blocked`: the page carried an unenforceable finding — demo on a clean page.
+- `NAVIGATE_NEEDS_APPROVAL`: the allowlist gate held — approve or stay.
+- CAPTCHA banner: solve + Resume; error pages stop with an origin-only reason.

@@ -28,6 +28,7 @@ import type {
 import { decidePolicyReport } from '../policy';
 import type { LocalVault } from '../vault';
 import { createAliasAllocator, redact, toSensitiveCategory } from './alias';
+import { logAuditEvent } from '../audit/log';
 import { mergeMaskRegions, type MaskInput } from './mask';
 
 export interface EnforceInput {
@@ -102,6 +103,13 @@ export async function enforcePrivacy(input: EnforceInput): Promise<EnforcementRe
       if (allocation.isNew) redactPairs.push({ value: rawValue, alias });
       // The raw value lives ONLY here, in the local vault.
       vaultWrites.push(vault.put({ alias, category, sessionId, createdAt: now() }, rawValue));
+      if (allocation.isNew) {
+        try {
+          logAuditEvent({ sessionId, type: 'alias_created', detail: `Alias ${alias} created` });
+        } catch {
+          // ignore - audit is best-effort
+        }
+      }
     }
 
     let masked = false;

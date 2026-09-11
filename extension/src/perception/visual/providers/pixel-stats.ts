@@ -133,6 +133,9 @@ function classify(
 export function createPixelStatsProvider(): VisualProvider {
   return {
     name: 'pixel-stats',
+    // Phase 6A — heuristic provider: no model exists, so the state is
+    // permanently not_loaded (the panel shows no engine line for it).
+    getModelState: () => 'not_loaded' as const,
     // 'vision' — this provider observes structure. It is NOT an OCR source.
     source: 'vision',
 

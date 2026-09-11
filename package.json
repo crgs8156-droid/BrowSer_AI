@@ -1,9 +1,9 @@
 {
   "name": "privagent",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "PrivAgent — privacy-preserving AI browser agent (SIH 2026). M0 scaffolding only.",
+  "description": "PrivAgent \u2014 privacy-preserving AI browser agent (SIH 2026). M0 scaffolding only.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -35,6 +35,7 @@
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^9.39.5",
     "globals": "^17.11.0",
     "prettier": "^3.9.6",

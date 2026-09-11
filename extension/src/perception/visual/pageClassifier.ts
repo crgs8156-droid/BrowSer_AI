@@ -36,9 +36,28 @@ function fieldHaystack(field: FieldStructure): string {
   return `${field.label ?? ''} ${field.name ?? ''} ${field.inputType ?? ''}`;
 }
 
+// Phase 1B/1C — CAPTCHA + error-page detection.
+//
+// Honest signal limits (CONTRIBUTING.md §3): the scan pipeline exposes form-control
+// fields (tag/label/name/inputType) + whole-page innerText only — iframe src, element
+// class lists, img alt attributes, and h1/h2/title tags are NOT collected (see
+// `FieldStructure`). Detection therefore runs on `pageText` + label/name haystacks:
+// visible CAPTCHA wording ("I'm not a robot", "human verification") and error wording
+// ("404", "page not found") always surface in innerText; recaptcha/hcaptcha marker
+// strings match when embedded in labels, names, or text. A collector upgrade exposing
+// iframe/class/alt signals would raise recall further — marked as future work.
+
+const CAPTCHA_MARKERS = /recaptcha|hcaptcha|g-recaptcha|h-captcha/i;
+const CAPTCHA_TEXT = /captcha|i'm not a robot|human verification|verify you (are|as) human/i;
+// NOTE: bare status codes (e.g. "500" in "₹18,500") misfire on prices/IDs, so
+// codes only count with error semantics: "404 not found", "Error 500", etc.
+const ERROR_TEXT =
+  /\b(404|500|403)\s*(not found|error|forbidden|unavailable|internal)|\berror\s*(404|500|403|4\d\d|5\d\d)|page not found|something went wrong|service unavailable/i;
+
 /**
- * Classify the page from already-collected structural signals, in the spec'd priority
- * order: payment → auth → form → medical → general. First match wins.
+ * Classify the page from already-collected structural signals, in priority
+ * order: captcha → error_page → payment → auth → form → medical → general.
+ * Safety stops (captcha/error) outrank everything — first match wins.
  */
 export function classifyPage(
   fields: FieldStructure[] | undefined,
@@ -47,6 +66,19 @@ export function classifyPage(
   const inputFields = (fields ?? []).filter(isField);
   const text = typeof pageText === 'string' ? pageText : '';
   const allHaystacks = (fields ?? []).map(fieldHaystack).join(' ');
+
+  // 0a — captcha: explicit markers (0.95) or visible challenge wording (0.95).
+  if (CAPTCHA_MARKERS.test(allHaystacks) || CAPTCHA_MARKERS.test(text)) {
+    return { pageType: 'captcha', confidence: EXPLICIT_CONFIDENCE };
+  }
+  if (CAPTCHA_TEXT.test(text)) {
+    return { pageType: 'captcha', confidence: EXPLICIT_CONFIDENCE };
+  }
+
+  // 0b — error page: HTTP-equivalent / not-found wording (0.90).
+  if (ERROR_TEXT.test(text)) {
+    return { pageType: 'error_page', confidence: 0.9 };
+  }
 
   // 1 — payment: a telephone input near card/cvv/expiry wording. The co-occurrence of
   // the structural tel type AND payment wording is an explicit, high-confidence signal.
