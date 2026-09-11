@@ -14,9 +14,10 @@ export interface SafeTaskState {
 const STORAGE_KEY = 'privagent_active_task';
 
 async function getStorage(): Promise<chrome.storage.StorageArea | null> {
+  // Part D — session-only (wiped when the browser closes). No local fallback:
+  // fail-closed null outside the extension context (CONTRIBUTING.md §5 Rule 7).
   try {
     if (typeof chrome !== 'undefined' && chrome.storage?.session) return chrome.storage.session;
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) return chrome.storage.local;
   } catch {
     // ignore - storage unavailable in this context
   }
@@ -54,4 +55,16 @@ export async function clearTaskState(): Promise<void> {
   } catch {
     // ignore - clearing is best-effort
   }
+}
+
+/**
+ * Part D — resume policy (restart-with-banner, never mid-step injection).
+ * Auto-resume only `running` tasks with a non-empty objective; terminal states
+ * (`completed`/`stopped`) and malformed records never resume.
+ */
+export function shouldResumeTask(state: SafeTaskState | null): boolean {
+  if (state === null) return false;
+  if (state.status !== 'running') return false;
+  if (typeof state.taskObjective !== 'string' || state.taskObjective.trim().length === 0) return false;
+  return true;
 }

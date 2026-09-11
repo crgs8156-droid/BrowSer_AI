@@ -15,3 +15,47 @@ export function setNavigationAllowlist(list: readonly string[]): void {
 export function getNavigationAllowlist(): readonly string[] {
   return navigationAllowlist;
 }
+
+/** Parse an https origin from a URL; null on malformed/non-https (fail closed). */
+export function originOfUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Part C — allowlist membership (origin-only, fail closed).
+ * Matches the bridge's hostname semantics: exact host or true subdomain with
+ * port equality. Malformed URLs or entries match nothing.
+ */
+export function isOriginAllowlisted(url: string, allowlist: readonly string[]): boolean {
+  let request: URL;
+  try {
+    request = new URL(url);
+  } catch {
+    return false;
+  }
+  if (request.protocol !== 'https:') return false;
+  const requestHost = request.hostname.toLowerCase().replace(/\.+$/, '');
+  for (const entry of allowlist) {
+    let allowed: URL;
+    try {
+      allowed = new URL(entry);
+    } catch {
+      continue;
+    }
+    if (allowed.protocol !== 'https:') continue;
+    const allowedHost = allowed.hostname.toLowerCase().replace(/\.+$/, '');
+    const hostMatch =
+      requestHost === allowedHost || requestHost.endsWith(`.${allowedHost}`);
+    const defaultPort = (u: URL) => (u.protocol === 'https:' ? '443' : u.port);
+    const requestPort = request.port || defaultPort(request);
+    const allowedPort = allowed.port || defaultPort(allowed);
+    if (hostMatch && requestPort === allowedPort) return true;
+  }
+  return false;
+}

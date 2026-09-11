@@ -28,11 +28,11 @@ import { enforcePrivacy } from '../sanitizer';
 import type { LocalVault } from '../vault';
 import type { PrivacyFirewall } from '../firewall';
 import type { AgentGateway } from './index';
-import { setNavigationAllowlist } from './session-policy';
+import { isOriginAllowlisted, originOfUrl, setNavigationAllowlist } from './session-policy';
 import { getProgressFingerprint } from './progress';
 import { classifyRisk } from './risk';
 import type { RiskLevel } from './risk';
-import { saveTaskState } from './task-state';
+import { clearTaskState, saveTaskState } from './task-state';
 
 /** One executed step, recorded for the UI/audit. Alias-level only — never a resolved value. */
 export interface AgentStepRecord {
@@ -94,6 +94,13 @@ export interface AgentLoopOptions {
   navigationAllowlist?: string[];
   /** Observe the active tab (wraps the SCAN_PAGE relay). Injectable for tests. */
   scan: () => Promise<ScanPageResponse>;
+  /**
+   * Part C — user confirmation for cross-allowlist NAVIGATE.
+   * Called with the full planned URL; UI must display origin-only.
+   * Resolve true to approve (origin added to session allowlist), false to deny.
+   * Absent = deny (fail closed — never auto-navigate off-allowlist).
+   */
+  onNavigateConfirm?: (url: string) => Promise<boolean>;
   /** Privacy-event sink (telemetry lands in M7; the loop only emits structured events). */
   onEvent?: (event: { type: 'STEP' | 'STOP'; code: string; index: number }) => void;
 }
@@ -137,6 +144,7 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   const maxSteps = options.maxSteps ?? DEFAULT_MAX_STEPS;
   const steps: AgentStepRecord[] = [];
   let previousFingerprint: string | null = null;
+  const approvedOrigins: string[] = [];
   let actionsExecuted = 0;
   const stage = { scanMs: 0, enforceMs: 0, planMs: 0, executeMs: 0 };
   const startedAt = performance.now();
@@ -147,6 +155,29 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   // call touches the vault, so the wipe never runs mid-run.
   const stop = (status: AgentRunStatus, reason?: string): AgentRunResult => {
     options.onEvent?.({ type: 'STOP', code: reason ?? status, index: steps.length });
+    // Part D — terminal persistence: completed clears (no resurrection on reload);
+    // other terminals mark stopped (banner-eligible, never auto-resumed).
+    try {
+      if (status === 'completed') {
+        void clearTaskState();
+      } else {
+        void saveTaskState({
+          taskId: options.sessionId,
+          taskObjective: options.task,
+          currentStep: steps.length,
+          steps: steps.map((s) => ({
+            index: s.index,
+            action: s.action ? s.action.action : null,
+            outcome: s.outcome,
+            ok: s.ok,
+          })),
+          status: 'stopped',
+          updatedAt: Date.now(),
+        });
+      }
+    } catch {
+      // ignore - persistence is best-effort
+    }
     return {
       status,
       reason,
@@ -205,12 +236,12 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
 
     // Navigation allowlist: explicit option wins; otherwise the scanned page's own
     // origin (same-site navigation only). Shared with the bridge's policy provider.
-    let allowlist = options.navigationAllowlist ?? [];
+    let allowlist = [...(options.navigationAllowlist ?? []), ...approvedOrigins];
     if (options.navigationAllowlist === undefined && observed.snapshot?.url) {
       try {
-        allowlist = [new URL(observed.snapshot.url).origin];
+        allowlist = [new URL(observed.snapshot.url).origin, ...approvedOrigins];
       } catch {
-        allowlist = [];
+        allowlist = [...approvedOrigins];
       }
     }
     setNavigationAllowlist(allowlist);
@@ -264,6 +295,26 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
     if (action === undefined) {
       steps.push({ index, action: null, outcome: 'no_action', ok: true });
       return stop('completed');
+    }
+
+    // Part C — navigation safety: never auto-navigate off-allowlist.
+    if (action.action === 'NAVIGATE' && !isOriginAllowlisted(action.url, allowlist)) {
+      let approved = false;
+      try {
+        approved = (await options.onNavigateConfirm?.(action.url)) ?? false;
+      } catch {
+        approved = false;
+      }
+      if (!approved) {
+        steps.push({ index, action, outcome: 'NAVIGATE_NEEDS_APPROVAL', ok: false });
+        return stop('blocked', 'NAVIGATE_NEEDS_APPROVAL');
+      }
+      const origin = originOfUrl(action.url);
+      if (origin !== null && !allowlist.includes(origin)) {
+        allowlist = [...allowlist, origin];
+        approvedOrigins.push(origin);
+        setNavigationAllowlist(allowlist);
+      }
     }
     const executeStartedAt = performance.now();
     let outcome: ExecuteOutcome;
@@ -336,7 +387,7 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
     }
   }
 
-  return stop('max_steps');
+  return stop('max_steps', 'MAX_STEPS_REACHED');
 }
 
 /**

@@ -106,6 +106,43 @@ class PlanResponse(BaseModel):
     actions: list[PlanAction]
 
 
+class TaskPlan(BaseModel):
+    """Decomposer view over a `PlanResponse` (Part A, additive only).
+
+    `/v1/plan` wire format stays exactly `{"actions": [...]}` — this model is a
+    local interpretation used by the extension adapter and never changes the
+    endpoint contract (existing exact-equality tests keep passing).
+    """
+
+    type: Literal["action", "navigate", "complete"]
+    actions: list[PlanAction] = []
+    done: bool
+    url: str | None = None
+    reason: str | None = None
+    summary: str | None = None
+
+
+def to_task_plan(response: PlanResponse) -> TaskPlan:
+    """Decompose a plan into action/navigate/complete (no PII, no values)."""
+    if not response.actions:
+        return TaskPlan(
+            type="complete",
+            actions=[],
+            done=True,
+            summary="No further actions — task complete or nothing safe to do.",
+        )
+    first = response.actions[0]
+    if isinstance(first, NavigateAction):
+        return TaskPlan(
+            type="navigate",
+            actions=response.actions,
+            done=False,
+            url=first.url,
+            reason="Allowlisted navigation to next page.",
+        )
+    return TaskPlan(type="action", actions=response.actions, done=False)
+
+
 class Planner(Protocol):
     name: str
 

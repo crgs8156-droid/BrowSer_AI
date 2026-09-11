@@ -5,7 +5,7 @@
 // step records are alias-level by contract (`AgentStepRecord.action` holds aliases, and
 // alias→value resolution happens inside the bridge at execution time, on-device).
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { runAgentLoop, type AgentRunResult, type AgentStepRecord } from '../agent';
 import { createRemoteHttpAgentGateway } from '../agent/remote';
 import { createActionBridge } from '../actions';
@@ -16,6 +16,8 @@ import { DEFAULT_ACTION_POLICY } from '../actions/validate';
 import { createLocalVault } from '../vault';
 import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
+import { formatAgentStep, formatTerminalLine, STEP_LOG_OPENERS } from './agent-step-log';
+import { loadTaskState, shouldResumeTask } from '../agent/task-state';
 
 type RunState = 'idle' | 'running' | 'done';
 
@@ -37,11 +39,24 @@ export function AgentTask() {
   const [plannerMode, setPlannerMode] = useState<'local' | 'gemini' | 'offline'>('local');
   const [state, setState] = useState<RunState>('idle');
   const [result, setResult] = useState<AgentRunResult | null>(null);
+  const [liveLog, setLiveLog] = useState<string[]>([]);
+  const [pendingNav, setPendingNav] = useState<string | null>(null);
+  const navResolver = useRef<((approved: boolean) => void) | null>(null);
 
-  const run = async () => {
-    if (task.trim().length === 0) return;
+  const originDisplay = (url: string): string => {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return 'allowlisted url';
+    }
+  };
+
+  const run = async (objectiveOverride?: string, sessionIdOverride?: string) => {
+    const objective = (objectiveOverride ?? task).trim();
+    if (objective.length === 0) return;
     setState('running');
     setResult(null);
+    setLiveLog([...STEP_LOG_OPENERS]);
     try {
       // NAVIGATE allowlist: user-configured via storage (settings surface later);
       // default EMPTY — the loop then falls back to same-origin-only navigation.
@@ -73,9 +88,10 @@ export function AgentTask() {
             });
       const provider = plannerMode === 'offline' ? undefined : (plannerMode === 'local' ? 'ollama' : 'gemini');
 
+      const sessionId = sessionIdOverride ?? `agent-${Date.now()}`;
       const runResult = await runAgentLoop({
-        task,
-        sessionId: `agent-${Date.now()}`,
+        task: objective,
+        sessionId,
         vault,
         gateway,
         provider,
@@ -87,6 +103,18 @@ export function AgentTask() {
         }),
         firewall,
         scan: () => chrome.runtime.sendMessage({ type: SCAN_PAGE }) as Promise<ScanPageResponse>,
+        onNavigateConfirm: (url) =>
+          new Promise<boolean>((resolve) => {
+            navResolver.current = resolve;
+            setPendingNav(url);
+          }),
+        onEvent: (event) => {
+          if (event.type === 'STEP') {
+            setLiveLog((prev) => [...prev, `\u25B8 Step ${event.index} \u2014 ${event.code}`]);
+          } else {
+            setLiveLog((prev) => [...prev, formatTerminalLine(event.code, event.code)]);
+          }
+        },
       });
       const { stageMs } = runResult;
       for (const [name, ms] of [
@@ -99,6 +127,9 @@ export function AgentTask() {
         sessionTelemetry.timing(name, ms);
       }
       recordEvent({ type: 'TASK_RESULT' });
+      const lines = runResult.steps.map(formatAgentStep);
+      lines.push(formatTerminalLine(runResult.status, runResult.reason));
+      setLiveLog((prev) => [...prev, ...lines].slice(-30));
       setResult(runResult);
       setState('done');
     } catch {
@@ -112,6 +143,19 @@ export function AgentTask() {
       });
     }
   };
+
+  const resumed = useRef(false);
+  useEffect(() => {
+    if (resumed.current) return;
+    resumed.current = true;
+    void (async () => {
+      const stored = await loadTaskState();
+      if (stored === null || !shouldResumeTask(stored)) return;
+      setTask(stored.taskObjective);
+      setLiveLog(['Resuming task...']);
+      await run(stored.taskObjective, stored.taskId);
+    })();
+  }, []);
 
   return (
     <section className="mt-6 border-t border-neutral-200 pt-4" aria-label="Agent task">
@@ -167,11 +211,58 @@ export function AgentTask() {
 
       <button
         className="mt-2 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
-        onClick={run}
+        onClick={() => void run()}
         disabled={state === 'running' || task.trim().length === 0}
       >
         {state === 'running' ? 'Running…' : 'Run agent task'}
       </button>
+
+      {liveLog.length > 0 && (
+        <ul
+          className="mt-2 max-h-40 space-y-1 overflow-y-auto text-xs text-neutral-700"
+          data-testid="agent-live-log"
+        >
+          {liveLog.slice(-10).map((line, i) => (
+            <li key={`${i}-${line}`} className="font-mono">
+              {line}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {pendingNav !== null && state === 'running' && (
+        <div className="mt-2 rounded border border-amber-300 bg-amber-50 p-2 text-xs" data-testid="nav-confirm">
+          <p>
+            Agent wants to navigate to {originDisplay(pendingNav)} — allow? [Yes/No]
+          </p>
+          <div className="mt-1 flex gap-2">
+            <button
+              className="rounded bg-emerald-600 px-2 py-0.5 text-white"
+              data-testid="nav-confirm-yes"
+              onClick={() => {
+                navResolver.current?.(true);
+                navResolver.current = null;
+                setPendingNav(null);
+                setLiveLog((prev) => [...prev, '\u{1F310} Navigation approved']);
+              }}
+            >
+              Yes
+            </button>
+            <button
+              className="rounded bg-neutral-300 px-2 py-0.5"
+              data-testid="nav-confirm-no"
+              onClick={() => {
+                navResolver.current?.(false);
+                navResolver.current = null;
+                setPendingNav(null);
+                setLiveLog((prev) => [...prev, '\u26D4 Navigation denied']);
+              }}
+            >
+              No
+            </button>
+          </div>
+        </div>
+      )}
 
       {state === 'done' && result !== null && (
         <div className="mt-3" data-testid="agent-result">

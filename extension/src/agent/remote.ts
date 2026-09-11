@@ -33,6 +33,45 @@ export interface RemoteHttpAgentGatewayOptions {
   timeoutMs?: number;
 }
 
+export type TaskPlanType = 'action' | 'navigate' | 'complete';
+
+export interface TaskPlan {
+  type: TaskPlanType;
+  actions: AgentAction[];
+  done: boolean;
+  /** Origin-only URL for navigate plans (never full query strings). */
+  url?: string;
+  summary?: string;
+}
+
+/**
+ * Part A — backward-compat task decomposer adapter.
+ * `/v1/plan` still returns exactly `{actions: [...]}`; this maps that contract to
+ * `{type, done}` without changing the wire format or breaking existing callers.
+ * No raw values enter: actions are schema-validated before classification.
+ */
+export function toTaskPlan(actions: AgentAction[]): TaskPlan {
+  if (actions.length === 0) {
+    return {
+      type: 'complete',
+      actions: [],
+      done: true,
+      summary: 'Task complete — 0 bytes leaked',
+    };
+  }
+  const first = actions[0];
+  if (first !== undefined && first.action === 'NAVIGATE') {
+    let origin = first.url;
+    try {
+      origin = new URL(first.url).origin;
+    } catch {
+      origin = first.url;
+    }
+    return { type: 'navigate', actions, done: false, url: origin };
+  }
+  return { type: 'action', actions, done: false };
+}
+
 export function createRemoteHttpAgentGateway(options: RemoteHttpAgentGatewayOptions): AgentGateway {
   const fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   const timeoutMs = options.timeoutMs ?? 15_000;
