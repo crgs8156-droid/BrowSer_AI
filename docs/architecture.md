@@ -1,7 +1,7 @@
 # PrivAgent — Architecture
 
 This document describes the **module boundaries** and their implementation status after
-M7. Every module below is implemented and tested; see
+M10. Every module below is implemented and tested; see
 [PROJECT_STATUS.md](../PROJECT_STATUS.md) for the per-milestone logs (files, gates,
 privacy verification) and [docs/threat-model.md](threat-model.md) /
 [docs/interface-contracts.md](interface-contracts.md) /
@@ -22,16 +22,18 @@ privacy verification) and [docs/threat-model.md](threat-model.md) /
 perception/dom      DOM extraction                 (M1 ✅)
 perception/ocr      Tesseract.js, local wasm       (M2/M3 ✅, live Chrome verify via e2e)
 perception/visual   capture/regions/bands/analyzer (M3 ✅)
-perception/pii      pattern + label-evidence PII   (M2 ✅, multi-signal M7 ✅)
-perception/visual   faceBlur (ONNX WASM) + pageClassifier (M7.5 ✅)
+perception/pii      pattern + label-evidence PII   (M2 ✅, multi-signal M7 ✅, Indian phone + Devanagari ✅)
+perception/visual   faceBlur (ONNX WASM) + pageClassifier (M7.5 ✅, captcha/error_page ✅)
 policy              ALLOW/WARN/SANITIZE/BLOCK      (M4 ✅)
-sanitizer           aliasing + mask directives     (M5 ✅)
+sanitizer           aliasing + mask directives     (M5 ✅) + Devanagari normalize ✅
 vault               local alias<->value store      (M5 ✅)
-agent               deterministic + remote planner, loop driver (M6 ✅)
+agent               deterministic + remote planner, loop driver (M6 ✅, autonomous 10-step + nav confirm + captcha/error stops ✅)
 actions             schema/policy validation + bridge (M6 ✅)
 firewall            single outbound boundary       (M6 ✅, M7 seam complete)
-telemetry           value-free audit log + timings (M7 ✅)
-types/contracts     shared data contracts          (M0 ✅, extended M3–M7)
+telemetry           value-free audit log + timings (M7 ✅) + session audit log ✅
+sidepanel           ScanDetails + Transparency (reveal/cloud) + debug/trace + health + templates + brand ✅
+types/contracts     shared data contracts          (M0 ✅, extended M3–M10)
+debug               error classifier + trace (M10 ✅)
 ```
 
 ## The one rule that shapes everything: single egress

@@ -1,7 +1,7 @@
 # PrivAgent — PROJECT_STATUS
 
-_Last updated: 2026-09-08_
-_Status: M0–M9 complete — extension, perception (Tesseract OCR, BlazeFace, OmniParser vision), policy, sanitization, agent loop, backend planners (deterministic/Gemini/Ollama), privacy hardening; AGPL-3.0 Combined Work (bundled icon-detect-640.onnx)._
+_Last updated: 2026-09-11_
+_Status: M0–M10 complete — Indian phone (all formats), Scan Details, debug/error classification, health indicator, transparency viewers, progressive vision, CI coverage, v0.1.0_ — extension, perception (Tesseract OCR, BlazeFace, OmniParser vision), policy, sanitization, agent loop, backend planners (deterministic/Gemini/Ollama), privacy hardening; AGPL-3.0 Combined Work (bundled icon-detect-640.onnx)._
 _Engineering rules: [CONTRIBUTING.md](CONTRIBUTING.md) (formerly `CLAUDE.md`; section
 numbers unchanged)._
 
@@ -1419,6 +1419,22 @@ it.
 
 ---
 
+## 9o. M10 — Indian phone, Scan Details, debug hardening (2026-09-11)
+
+### Indian phone (Phase 1)
+Comprehensive Indian mobile detection: 10-digit (9876543210), 5+5 (98765 43210), 3+4+3 (987-6543-210), +91 variants, 0-prefix, 0091 — all as `USER_PHONE_1`. Guards: stripped 10-14 digits, core last 10 starts 6-9, boundary checks, Aadhaar-span overlap skip (so Aadhaar 12-digit never misfires as phone), overlapping dedup, US fallback preserved for existing canaries (555-123-4567). Backend `pii_scan.py` mirrors same `_phone_hits` logic; POST-scan catches phone in LLM response → 502.
+
+### Scan Details panel (Phase 2)
+New `ScanDetails.tsx` below scan summary, collapsed by default, auto-expands when PII detected. Table: Category|Alias|Masked Value|Found In|Confidence with bullet masking (never `*`, never raw): Email first4@•••.tld, Phone cc+first2•••••last3, Aadhaar first4 •••• ••••last2, PAN first2•••••••••last1, UPI •••@handle, password ••••••••, name first •••, default first2••••last2. Fields analyzed (inputs/textareas/labels, sensitive/safe) and Policy decision (Sanitize/Block + signals + Strict). All masked via `vault.resolve(alias)` in `App.tsx` — raw never in UI. Canary-tested: HTML never contains test email.
+
+### Debug & error classification (Phase 3)
+`debug/errors.ts` 11 categories (network, llm_timeout, llm_parse, firewall_block, dom_access, model_load, permission, captcha, max_steps, vault_empty, unknown) with recoverable flags and hints. `debug/trace.ts` lightweight emitter (max 50 FIFO, selector 30 chars, canary-safe, zero overhead when off, `chrome.storage.local` `debugMode` persist). Loop emits DOM/PII/firewall/LLM/action/navigation/complete traces. `AgentTask.tsx` now shows classified error UI (Backend unreachable / AI timeout / firewall block / DOM / model / permission / step limit) with contextual Retry/Offline/Continue buttons, debug toggle + trace panel, and lazy health dot (🟢/🔴/⚫) that only fetches `localhost:8000/health` after mode switches to Gemini/Ollama (never on mount — smoke zero-console).
+
+### Validation
+typecheck ✅ lint ✅ vitest 433/433 ✅ build ✅ e2e 24/24 ✅ pytest 60/60 ✅
+
+## 10. Corrections to earlier milestone claims
+
 ## 11. Next milestone
 
-All planned milestones complete. Remaining: LICENSE, demo video, SIH submission report.
+Demo video + SIH submission report remain.

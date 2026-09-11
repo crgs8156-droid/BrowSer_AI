@@ -8,7 +8,7 @@ perception + multi-signal PII detection, local semantic aliasing (`USER_EMAIL_1`
 local identity vault, an agent that plans structured actions over sanitized context,
 and a fail-closed **privacy firewall** as the single outbound boundary.
 
-> **Status:** M0–M9 complete — extension, perception (BlazeFace
+> **Status:** M0–M10 complete — Indian phone (all formats), Scan Details, debug/error classification, health indicator, transparency viewers, progressive vision, CI coverage, v0.1.0 — extension, perception (BlazeFace
 > ONNX face detection, Tesseract OCR, page classification), policy,
 > sanitization, agent loop, action bridge, privacy firewall,
 > telemetry, PrivAgent-Bench, Gemini Flash provider, and local
@@ -27,6 +27,8 @@ and a fail-closed **privacy firewall** as the single outbound boundary.
 | 4. Privacy firewall | Exact-shape + alias-grammar + PII-scan gate; fails closed — `extension/src/firewall/` |
 | 5. Leakage sentinel | Synthetic canaries searched in every outbound payload; measured leakage rate — `benchmark/run.ts` |
 | 6. Privacy–utility trade-off | §11 three-way comparison generated per page — `npm run bench` |
+| 7. Indian regional PII | 10-digit + 5+5 + 3+4+3 + +91/0/0091, Aadhaar-aware, Devanagari numerals — `perception/pii` + `pii_scan.py` |
+| 8. Transparency | Reveal session values (masked) + Inspect Cloud payload (sanitized) + Scan Details + audit log — `sidepanel/` |
 
 ## Measured results (PrivAgent-Bench, fixtures v1)
 

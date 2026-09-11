@@ -72,6 +72,25 @@ export function toTaskPlan(actions: AgentAction[]): TaskPlan {
   return { type: 'action', actions, done: false };
 }
 
+let lastCloudPayload: import('../types/contracts').RemoteAgentRequest | null = null;
+let lastCloudPayloadAt: number | null = null;
+let lastCloudPayloadBytes: number | null = null;
+
+export function getLastCloudPayload(): import('../types/contracts').RemoteAgentRequest | null {
+  return lastCloudPayload ? (JSON.parse(JSON.stringify(lastCloudPayload)) as import('../types/contracts').RemoteAgentRequest) : null;
+}
+
+export function getLastCloudPayloadMeta(): { at: number; bytes: number } | null {
+  if (lastCloudPayloadAt === null || lastCloudPayloadBytes === null) return null;
+  return { at: lastCloudPayloadAt, bytes: lastCloudPayloadBytes };
+}
+
+export function clearLastCloudPayload(): void {
+  lastCloudPayload = null;
+  lastCloudPayloadAt = null;
+  lastCloudPayloadBytes = null;
+}
+
 export function createRemoteHttpAgentGateway(options: RemoteHttpAgentGatewayOptions): AgentGateway {
   const fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
   const timeoutMs = options.timeoutMs ?? 15_000;
@@ -80,6 +99,14 @@ export function createRemoteHttpAgentGateway(options: RemoteHttpAgentGatewayOpti
     async plan(request: RemoteAgentRequest): Promise<AgentAction[]> {
       const verdict = await options.firewall.inspect(request);
       if (!verdict.allowed) throw new FirewallBlockedError(verdict.reason);
+      // Phase: capture last transmitted payload (sanitized only, deep copy) for viewer.
+      try {
+        lastCloudPayload = JSON.parse(JSON.stringify(request)) as import('../types/contracts').RemoteAgentRequest;
+        lastCloudPayloadAt = Date.now();
+        lastCloudPayloadBytes = JSON.stringify(request).length;
+      } catch {
+        // ignore - viewer is best-effort
+      }
 
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);

@@ -2,7 +2,8 @@ import type { SensitiveEntity } from '../../types/contracts';
 import { normalizeNumerals } from '../../sanitizer/normalize';
 
 const EMAIL_REGEX = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
-const PHONE_REGEX = /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
+const PHONE_REGEX = /(?:(?:\+91|0091|91|0)[\s\-.]?)?(?:[6-9]\d{4}[\s\-.]?\d{5}|[6-9]\d{2}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4})/g;
+const PHONE_US_REGEX = /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/g;
 const CREDIT_CARD_REGEX = /\b(?:\d[ -]?){13,19}\b/g;
 const CREDENTIAL_REGEX = /(?:api[_-]?key|secret|token|password|bearer|auth|access[_-]?token)\s*[:=]\s*["']?([A-Za-z0-9\-_.~+/]{8,})["']?/gi;
 // Indian PII (SIH 2026): Aadhaar (UIDAI: first digit 2-9, 4-4-4 groups, space/hyphen
@@ -69,18 +70,46 @@ export function detectPII(text: string): SensitiveEntity[] {
     }
   }
 
-  for (const match of normalized.matchAll(PHONE_REGEX)) {
-    if (match.index !== undefined && match[0]) {
-      entities.push({
-        id: `phone-${match.index}`,
-        category: 'PHONE_NUMBER',
-        confidence: 1,
-        reasons: ['Matched pattern for PHONE_NUMBER'],
-        source: 'DOM',
-        text: originalOf(match),
-      } as unknown as SensitiveEntity);
-    }
+  // Collect Aadhaar spans first to avoid misclassifying Aadhaar groups as phone.
+  const aadhaarSpans: Array<{ start: number; end: number }> = [];
+  for (const m of normalized.matchAll(AADHAAR_REGEX)) {
+    if (m.index !== undefined && m[0]) aadhaarSpans.push({ start: m.index, end: m.index + m[0].length });
   }
+  const phoneSpans: Array<{ start: number; end: number }> = [];
+  const addPhone = (match: RegExpMatchArray, isIndian: boolean) => {
+    if (match.index === undefined || !match[0]) return;
+    const raw = match[0];
+    const start = match.index;
+    const end = start + raw.length;
+    if (phoneSpans.some((s) => start < s.end && end > s.start)) return;
+    const stripped = raw.replace(/\D/g, '');
+    if (isIndian) {
+      if (stripped.length < 10 || stripped.length > 14) return;
+      const core = stripped.slice(-10);
+      if (core.length !== 10 || !/^[6-9]\d{9}$/.test(core)) return;
+    } else {
+      if (stripped.length < 10 || stripped.length > 11) return;
+      const coreUs = stripped.slice(-10);
+      if (/^[01]/.test(coreUs)) return;
+    }
+    const before = normalized[start - 1];
+    const after = normalized[end];
+    if (before && /\d/.test(before)) return;
+    if (after && /\d/.test(after)) return;
+    if (aadhaarSpans.some((s) => start < s.end && end > s.start)) return;
+    phoneSpans.push({ start, end });
+    entities.push({
+      id: `phone-${start}`,
+      category: 'PHONE_NUMBER',
+      confidence: 1,
+      reasons: ['Matched pattern for PHONE_NUMBER'],
+      source: 'DOM',
+      text: originalOf(match),
+    } as unknown as SensitiveEntity);
+  };
+  for (const match of normalized.matchAll(PHONE_REGEX)) addPhone(match, true);
+  // US fallback for backward compatibility (existing canaries like 555-123-4567)
+  for (const match of normalized.matchAll(PHONE_US_REGEX)) addPhone(match, false);
 
   for (const match of normalized.matchAll(CREDIT_CARD_REGEX)) {
     if (match.index !== undefined && match[0]) {

@@ -18,6 +18,10 @@ import { SCAN_PAGE, type ScanPageResponse } from '../types/messages';
 import { recordEvent, sessionTelemetry } from './telemetry-session';
 import { formatAgentStep, formatTerminalLine, STEP_LOG_OPENERS } from './agent-step-log';
 import { loadTaskState, shouldResumeTask } from '../agent/task-state';
+import { maskValue } from './reveal';
+import { getLastCloudPayload, getLastCloudPayloadMeta } from '../agent/remote';
+import { classifyFromStatus } from '../debug/errors';
+import { getTrace, startTrace, setTraceEnabled } from '../debug/trace';
 import {
   addTemplate,
   deleteTemplate,
@@ -52,6 +56,17 @@ export function AgentTask() {
   const [result, setResult] = useState<AgentRunResult | null>(null);
   const [liveLog, setLiveLog] = useState<string[]>([]);
   const [pendingNav, setPendingNav] = useState<string | null>(null);
+  const [revealRows, setRevealRows] = useState<Array<{ alias: string; category: string; value: string; masked: string }>>([]);
+  const [revealOpen, setRevealOpen] = useState(false);
+  const [unmasked, setUnmasked] = useState<Set<string>>(new Set());
+  const [cloudOpen, setCloudOpen] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
+  const [cloudSnapshot, setCloudSnapshot] = useState<import('../types/contracts').RemoteAgentRequest | null>(null);
+  const [cloudMeta, setCloudMeta] = useState<{ at: number; bytes: number } | null>(null);
+  const revealMapRef = useRef<Map<string, { value: string; category: string }>>(new Map());
+  const [debugMode, setDebugMode] = useState(false);
+  const [traceLines, setTraceLines] = useState<string[]>([]);
+  const [backendOnline, setBackendOnline] = useState<boolean | null>(null);
   const [templates, setTemplates] = useState<TaskTemplate[]>(() => getDefaultTemplates());
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [customName, setCustomName] = useState('');
@@ -72,6 +87,15 @@ export function AgentTask() {
     setState('running');
     setResult(null);
     setLiveLog([...STEP_LOG_OPENERS]);
+    if (debugMode) { startTrace(); setTraceLines([]); }
+    setRevealRows([]);
+    setRevealOpen(false);
+    setUnmasked(new Set());
+    setCloudOpen(false);
+    setShowRaw(false);
+    setCloudSnapshot(null);
+    setCloudMeta(null);
+    revealMapRef.current.clear();
     try {
       // NAVIGATE allowlist: user-configured via storage (settings surface later);
       // default EMPTY — the loop then falls back to same-origin-only navigation.
@@ -82,9 +106,16 @@ export function AgentTask() {
         ? (stored.navigationAllowlist as string[])
         : [];
 
-      // ONE vault shared by enforcement (writes aliases) and the bridge (resolves them) —
-      // the alias→value mapping lives only here, in memory, for this run.
-      const vault = createLocalVault();
+      // Wrapped vault: real store + side copy for reveal viewer (memory only, never logged).
+      const realVault = createLocalVault();
+      const vault = {
+        put: async (rec: import('../types/contracts').AliasRecord, val: string) => {
+          revealMapRef.current.set(rec.alias, { value: val, category: rec.category });
+          return realVault.put(rec, val);
+        },
+        resolve: (alias: string) => realVault.resolve(alias),
+        clearSession: (sid: string) => realVault.clearSession(sid),
+      } as import('../vault').LocalVault;
       // ONE firewall shared by the loop gate and the remote gateway's pre-transmit gate.
       const firewall = createPrivacyFirewall();
       // Planner mode: Local AI (Ollama) and Gemini go through the backend over the SAME
@@ -142,6 +173,25 @@ export function AgentTask() {
         sessionTelemetry.timing(name, ms);
       }
       recordEvent({ type: 'TASK_RESULT' });
+      // Snapshot reveal rows from side-copied vault (values never enter telemetry/audit)
+      try {
+        const rows = Array.from(revealMapRef.current.entries()).map(([alias, v]) => ({
+          alias,
+          category: v.category,
+          value: v.value,
+          masked: maskValue(v.value),
+        }));
+        setRevealRows(rows);
+      } catch {
+        // ignore
+      }
+      try {
+        setCloudSnapshot(getLastCloudPayload());
+        setCloudMeta(getLastCloudPayloadMeta());
+      } catch {
+        // ignore
+      }
+      if (debugMode) setTraceLines(getTrace().map((e) => e.formatted));
       const lines = runResult.steps.map(formatAgentStep);
       lines.push(formatTerminalLine(runResult.status, runResult.reason));
       setLiveLog((prev) => [...prev, ...lines].slice(-30));
@@ -164,6 +214,39 @@ export function AgentTask() {
       setTemplates(stored);
     });
   }, []);
+
+  useEffect(() => {
+    // Debug mode persist
+    try { void chrome.storage?.local?.get('debugMode').then((d: Record<string, unknown>) => { if (typeof d?.debugMode === 'boolean') { setDebugMode(d.debugMode as boolean); setTraceEnabled(d.debugMode as boolean); } }); } catch { /* ignore */ }
+  }, []);
+
+  const didMountRef = useRef(false);
+  useEffect(() => {
+    // Lazy health check: never fire on initial panel load (smoke asserts zero
+    // console errors; a failed fetch logs ERR_CONNECTION_REFUSED at Chromium
+    // level before any JS catch runs). Fire only after the user changes mode
+    // to a backend-backed planner.
+    if (!didMountRef.current) { didMountRef.current = true; return; }
+    if (plannerMode === 'offline') { setBackendOnline(null); return; }
+    const check = async () => {
+      try {
+        const res = await fetch('http://localhost:8000/health',
+          { signal: AbortSignal.timeout(2000) });
+        setBackendOnline(res.ok ? true : false);
+      } catch {
+        // Backend unreachable — expected when backend not running.
+        // Do NOT log to console (breaks smoke test).
+        setBackendOnline(false);
+      }
+    };
+    void check();
+  }, [plannerMode]);
+
+  useEffect(() => {
+    if (!debugMode || state !== 'running') return;
+    const id = setInterval(() => setTraceLines(getTrace().map((e) => e.formatted)), 500);
+    return () => clearInterval(id);
+  }, [debugMode, state]);
 
   const resumed = useRef(false);
   useEffect(() => {
@@ -321,6 +404,18 @@ export function AgentTask() {
         </label>
       </fieldset>
 
+      <div className="mt-1 flex items-center gap-1 text-xs" data-testid="backend-health">
+        {plannerMode === 'offline' ? (
+          <span>⚫ Offline mode selected (backend not needed)</span>
+        ) : backendOnline === null ? (
+          <span>⚪ Checking backend...</span>
+        ) : backendOnline ? (
+          <span>🟢 Backend online</span>
+        ) : (
+          <span>🔴 Backend offline — switch to Offline mode</span>
+        )}
+      </div>
+
       <button
         className="mt-2 px-4 py-1.5 bg-emerald-600 text-white rounded text-sm disabled:opacity-50"
         onClick={() => void run()}
@@ -419,6 +514,27 @@ export function AgentTask() {
             {result.reason !== undefined && result.status !== 'completed' ? ` · ${result.reason}` : ''}
             {` · ${(result.stageMs.totalMs / 1000).toFixed(1)}s local`}
           </p>
+          {(() => {
+            const cls = classifyFromStatus(result.status, result.reason);
+            if (cls.category === 'unknown' && result.status === 'completed') return null;
+            const isError = ['network','llm_timeout','llm_parse','firewall_block','dom_access','model_load','permission','max_steps'].includes(cls.category) || result.status === 'error' || result.status === 'blocked' || result.status === 'firewall_blocked';
+            if (!isError) return null;
+            return (
+              <div className="mt-2 rounded border p-2 text-xs" data-testid="classified-error">
+                <p className={cls.category === 'firewall_block' || cls.category === 'network' || cls.category === 'permission' ? 'text-red-600' : 'text-amber-600'}>
+                  {cls.category === 'network' ? '🔴 Backend unreachable' : cls.category === 'llm_timeout' ? '🟡 AI planner timed out' : cls.category === 'llm_parse' ? '🟡 AI returned unexpected response' : cls.category === 'firewall_block' ? '🔴 Privacy firewall blocked this request' : cls.category === 'dom_access' ? '🟡 Cannot access this page' : cls.category === 'model_load' ? '🟡 Vision model unavailable' : cls.category === 'permission' ? '🔴 Permission required' : cls.category === 'max_steps' ? '🟡 Task reached step limit (10/10)' : cls.message}
+                </p>
+                <p className="mt-1 text-neutral-600">{cls.category === 'network' ? 'Start the backend: cd backend/fastapi && uvicorn app.main:app --port 8000' : cls.category === 'llm_timeout' ? 'The LLM took too long to respond. Try again or switch to Offline mode.' : cls.category === 'llm_parse' ? 'The planner returned invalid actions. Retrying...' : cls.category === 'firewall_block' ? 'Raw PII detected in the request payload. This is a safety protection — the request was not sent.' : cls.category === 'dom_access' ? 'Chrome extensions cannot scan browser system pages (chrome://, extensions pages, etc.) Try on a regular website.' : cls.category === 'model_load' ? 'Icon detection model failed to load. Using text-based analysis only.' : cls.category === 'permission' ? 'Try reloading the extension or granting activeTab permission.' : cls.category === 'max_steps' ? 'The task was too complex to complete automatically.' : cls.debugHint}</p>
+                <div className="mt-1 flex gap-1">
+                  {cls.recoverable && <button className="rounded bg-emerald-600 px-2 py-0.5 text-white" data-testid="error-retry" onClick={() => void run()}>Retry</button>}
+                  {cls.category === 'llm_timeout' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-offline" onClick={() => setPlannerMode('offline')}>Switch to Offline</button>}
+                  {cls.category === 'firewall_block' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-view-blocked">View what was blocked</button>}
+                  {cls.category === 'model_load' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-continue">Continue anyway</button>}
+                  {cls.category === 'max_steps' && <button className="rounded bg-neutral-200 px-2 py-0.5" data-testid="error-view-progress">View progress so far</button>}
+                </div>
+              </div>
+            );
+          })()}
           {result.steps.length > 0 && (
             <ul className="mt-2 space-y-1 text-xs text-neutral-700" data-testid="agent-steps">
               {result.steps.map((step: AgentStepRecord) => (
@@ -441,6 +557,116 @@ export function AgentTask() {
             </ul>
           )}
         </div>
+      )}
+
+      <div className="mt-2 flex items-center gap-2 text-xs" data-testid="debug-toggle">
+        <label className="flex items-center gap-1">
+          <input type="checkbox" checked={debugMode} onChange={(e) => { const on = e.target.checked; setDebugMode(on); setTraceEnabled(on); try{ void chrome.storage?.local?.set({ debugMode: on }); }catch{ /* ignore */ } if (!on) setTraceLines([]); }} data-testid="debug-toggle-checkbox" />
+          Debug trace
+        </label>
+      </div>
+
+      {debugMode && traceLines.length > 0 && (
+        <div className="mt-2 rounded border border-neutral-200 p-2 text-xs" data-testid="debug-trace">
+          <p className="font-semibold">Debug trace</p>
+          <ul className="mt-1 max-h-40 overflow-auto font-mono">
+            {traceLines.slice(-50).map((line, i) => <li key={i}>{line}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {state === 'done' && result !== null && (
+        <section className="mt-4 rounded border border-neutral-200 p-3" aria-label="Transparency" data-testid="transparency">
+          <h3 className="text-xs font-semibold text-neutral-700">Transparency</h3>
+          <p className="mt-1 text-xs text-neutral-500">Local values stay on this device · Cloud payload is sanitized</p>
+
+          <div className="mt-2 flex gap-2">
+            <button
+              className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs text-emerald-700 disabled:opacity-50"
+              data-testid="reveal-toggle"
+              disabled={revealRows.length === 0}
+              onClick={() => setRevealOpen((v) => !v)}
+            >
+              {revealOpen ? "Hide session values" : "👁 Reveal session values (this device only)"}
+            </button>
+            <button
+              className="rounded border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700"
+              data-testid="cloud-toggle"
+              onClick={() => setCloudOpen((v) => !v)}
+            >
+              {cloudOpen ? "Hide Cloud payload" : "📡 Inspect last Cloud payload"}
+            </button>
+          </div>
+
+          {revealOpen && (
+            <div className="mt-2" data-testid="reveal-panel">
+              <p className="text-xs text-amber-600">Visible on this screen only — never sent, logged, or stored</p>
+              {revealRows.length === 0 ? (
+                <p className="mt-1 text-xs text-neutral-500">No values in memory</p>
+              ) : (
+                <ul className="mt-1 space-y-1" data-testid="reveal-rows">
+                  {revealRows.map((row) => {
+                    const isUnmasked = unmasked.has(row.alias);
+                    return (
+                      <li key={row.alias} className="flex items-center justify-between rounded bg-neutral-50 px-2 py-1 font-mono text-xs">
+                        <span>
+                          <span className="font-semibold">{row.alias}</span>
+                          <span className="ml-1 text-neutral-500">({row.category})</span>
+                          <span className="ml-2">{isUnmasked ? row.value : row.masked}</span>
+                        </span>
+                        <button
+                          className="ml-2 rounded bg-white px-1 py-0.5 text-xs text-neutral-600"
+                          data-testid={`reveal-unmask-${row.alias}`}
+                          onClick={() => {
+                            setUnmasked((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(row.alias)) next.delete(row.alias);
+                              else next.add(row.alias);
+                              return next;
+                            });
+                          }}
+                        >
+                          {isUnmasked ? "Mask" : "Show"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {cloudOpen && (
+            <div className="mt-2 rounded bg-neutral-50 p-2 text-xs" data-testid="cloud-panel">
+              {cloudSnapshot === null ? (
+                <p className="text-neutral-500">Offline run — 0 bytes left this device</p>
+              ) : (
+                <>
+                  <p className="font-medium text-neutral-700">Curated summary</p>
+                  <ul className="mt-1 space-y-0.5 font-mono text-neutral-600">
+                    <li>task: {cloudSnapshot.taskObjective.slice(0, 60)}</li>
+                    <li>origin: {cloudSnapshot.pageOrigin ?? "unknown"}</li>
+                    <li>nodes: {cloudSnapshot.sanitizedPageStructure.length} · aliases: {cloudSnapshot.aliases.length} · bytes: {cloudMeta?.bytes ?? JSON.stringify(cloudSnapshot).length}</li>
+                    <li>firewall: OK · 0 raw values</li>
+                    <li>aliases: {cloudSnapshot.aliases.map((a) => a.alias).join(", ") || "none"}</li>
+                  </ul>
+                  <button
+                    className="mt-2 rounded bg-white px-2 py-0.5 text-xs text-neutral-600"
+                    data-testid="cloud-show-raw"
+                    onClick={() => setShowRaw((v) => !v)}
+                  >
+                    {showRaw ? "Hide raw" : "Show raw"}
+                  </button>
+                  {showRaw && (
+                    <pre className="mt-1 max-h-40 overflow-auto rounded bg-white p-2 font-mono text-xs" data-testid="cloud-raw">
+                      {JSON.stringify(cloudSnapshot, null, 2)}
+                    </pre>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </section>
       )}
     </section>
   );

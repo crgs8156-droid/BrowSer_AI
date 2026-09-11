@@ -10,7 +10,8 @@ they cannot match any pattern here.
 import re
 
 EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
-PHONE_RE = re.compile(r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
+PHONE_RE = re.compile(r"(?:(?:\+91|0091|91|0)[\s\-.]?)?(?:[6-9]\d{4}[\s\-.]?\d{5}|[6-9]\d{2}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4})")
+PHONE_US_RE = re.compile(r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
 CARD_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
 # Indian PII mirrors of the extension detectors (SIH 2026): Aadhaar (UIDAI first
 # digit 2-9, 4-4-4 groups; lookarounds keep card prefixes from misfiring), PAN
@@ -69,6 +70,44 @@ def _upi_hits(text: str) -> list[str]:
     return hits
 
 
+def _phone_hits(text: str) -> list[str]:
+    """Indian primary + US fallback (existing canaries like 555-...)."""
+    aadhaar_spans = [(m.start(), m.end()) for m in AADHAAR_RE.finditer(text)]
+    seen_spans: list[tuple[int, int]] = []
+    hits: list[str] = []
+    def add(m, is_indian: bool):
+        raw = m.group(0)
+        start, end = m.start(), m.end()
+        if any(start < ae and end > ast for ast, ae in seen_spans):
+            return
+        stripped = re.sub(r"\D", "", raw)
+        if is_indian:
+            if len(stripped) < 10 or len(stripped) > 13:
+                return
+            core = stripped[-10:]
+            if len(core) != 10 or not re.match(r"^[6-9]\d{9}$", core):
+                return
+        else:
+            if len(stripped) < 10 or len(stripped) > 11:
+                return
+            core_us = stripped[-10:]
+            if re.match(r"^[01]", core_us):
+                return
+        if start > 0 and text[start - 1].isdigit():
+            return
+        if end < len(text) and text[end].isdigit():
+            return
+        if any(start < ae and end > ast for ast, ae in aadhaar_spans):
+            return
+        seen_spans.append((start, end))
+        hits.append(raw)
+    for m in PHONE_RE.finditer(text):
+        add(m, True)
+    for m in PHONE_US_RE.finditer(text):
+        add(m, False)
+    return hits
+
+
 def scan_pii(*texts: str) -> list[str]:
     """Return the raw PII values found across `texts` (empty when none)."""
     hits: list[str] = []
@@ -76,7 +115,7 @@ def scan_pii(*texts: str) -> list[str]:
         if not text:
             continue
         hits.extend(EMAIL_RE.findall(text))
-        hits.extend(PHONE_RE.findall(text))
+        hits.extend(_phone_hits(text))
         for match in CARD_RE.findall(text):
             if _luhn_valid(match):
                 hits.append(match)

@@ -34,6 +34,7 @@ import { classifyRisk } from './risk';
 import type { RiskLevel } from './risk';
 import { clearTaskState, saveTaskState } from './task-state';
 import { clearAuditLog, logAuditEvent } from '../audit/log';
+import { emitTrace } from '../debug/trace';
 
 /** One executed step, recorded for the UI/audit. Alias-level only — never a resolved value. */
 export interface AgentStepRecord {
@@ -158,6 +159,7 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   // call touches the vault, so the wipe never runs mid-run.
   const stop = (status: AgentRunStatus, reason?: string): AgentRunResult => {
     options.onEvent?.({ type: 'STOP', code: reason ?? status, index: steps.length });
+    emitTrace({ stage: `Task ${status}`, detail: reason ?? status, isError: status === 'error' || status === 'blocked' || status === 'firewall_blocked' });
     // Phase 3 — terminal audit events (codes only, never content).
     try {
       if (status === 'completed') {
@@ -213,12 +215,16 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
   }
 
   for (let index = 0; index < maxSteps; index++) {
+    emitTrace({ stage: 'DOM scan started', detail: `step ${index}` });
     // 1 — observe (raw, internal only).
     let observed: ScanPageResponse;
     const scanStartedAt = performance.now();
     try {
       observed = await options.scan();
+      const elCount = Array.isArray(observed.structure) ? observed.structure.length : 0;
+      emitTrace({ stage: 'DOM scan complete', detail: `${elCount} elements` });
     } catch {
+      emitTrace({ stage: 'DOM scan failed', isError: true });
       return stop('error', 'SCAN_FAILED');
     }
     stage.scanMs += performance.now() - scanStartedAt;
@@ -239,6 +245,7 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
       ...detectPII(observed.pageText),
       ...detectLabeledValues(observed.pageText),
     ];
+    emitTrace({ stage: 'PII scan', detail: `${entities.length} items detected` });
     // Phase 3 — audit: one value-free event per detected category.
     try {
       const counts = new Map<string, number>();
@@ -327,6 +334,7 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
 
     // 4 — firewall: the only path to egress. A deny stops the loop, visibly.
     const verdict = await options.firewall.inspect(request);
+    emitTrace({ stage: `Firewall check: ${verdict.allowed ? 'PASS' : 'BLOCK'}`, isError: !verdict.allowed });
     if (!verdict.allowed) {
       try {
         logAuditEvent({
@@ -343,10 +351,13 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
     }
 
     // 5 — plan.
+    emitTrace({ stage: 'LLM request sent', detail: `provider: ${options.provider ?? 'deterministic'}` });
     let planned: AgentAction[];
     const planStartedAt = performance.now();
     try {
       planned = await options.gateway.plan(request);
+      emitTrace({ stage: 'LLM response received', durationMs: Math.round(performance.now() - planStartedAt) });
+      emitTrace({ stage: 'Post-scan: PASS' });
     } catch (error) {
       return stop(
         'error',
@@ -421,7 +432,10 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
       // ignore - persistence is best-effort
     }
 
+    const actionLabel = action.action === 'NAVIGATE' ? (action as { url: string }).url.slice(0, 30) : action.action === 'SCROLL' ? '' : (action as { target: string }).target.slice(0, 30);
+    emitTrace({ stage: `Action: ${action.action} ${actionLabel}`.trim() });
     if (ok) {
+      emitTrace({ stage: 'Action executed' });
       try {
         const target = action.action === 'NAVIGATE' ? action.url : action.action === 'SCROLL' ? '' : action.target;
         logAuditEvent({
@@ -431,6 +445,7 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
           stepNumber: index,
         });
         if (action.action === 'NAVIGATE') {
+          emitTrace({ stage: 'Navigation', detail: (()=>{ try{ return new URL(action.url).origin;}catch{return 'allowlisted url';}})() });
           let origin = action.url;
           try {
             origin = new URL(action.url).origin;

@@ -10,7 +10,7 @@ no network. (Gemini/Ollama modes use the same sanitized contract.)
 
 1. Open the side panel on any ordinary form page. The **Scan** section shows the
    privacy status: sensitive counts with `USER_EMAIL_1`-style aliases, never raw
-   values (leakage sentinel: 0%).
+   values (leakage sentinel: 0%). Open **Scan Details** to see the masked table (e.g. `test@•••.com`, `+91 98•••••210` for Indian mobiles, Aadhaar/PAN masked) — never full values.
 2. In **Agent task**, click a template chip if one fits (e.g. Login), or type one
    instruction, e.g. "go to ilovepdf, log in, compress a PDF".
 3. Click **Run agent task**. The step log opens with "Scanning page...",
