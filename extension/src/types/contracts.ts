@@ -418,7 +418,9 @@ export interface RemoteAgentRequest {
 
 /** One form/control on the page, as seen by the REMOTE planner. Never a raw value. */
 export interface SanitizedNode {
-  tag: 'input' | 'textarea' | 'select' | 'button';
+  // div/span/a mirror FieldStructure: ARIA-hosted controls ([role="button"],
+  // [role="textbox"], [contenteditable]). Selector+label only, labels PII-gated.
+  tag: 'input' | 'textarea' | 'select' | 'button' | 'div' | 'span' | 'a';
   /** Deterministic CSS selector computed by the content script; the ONLY way to target it. */
   selector: string;
   /** For inputs/selects: the declared type (`text`, `email`, `password`, …). */

@@ -102,45 +102,46 @@ export function VisualStatus() {
   };
 
   return (
-    <section className="mt-6 border-t border-neutral-200 pt-4">
-      <h2 className="text-sm font-semibold">Visual perception</h2>
-      <p className="mt-1 text-xs text-neutral-500">
+    <section className="pa-card" style={{ marginTop: 10, padding: '12px 14px' }}>
+      <h2 className="pa-section-label" style={{ margin: 0, fontWeight: 600 }}>Visual perception</h2>
+      <p className="pa-faint" style={{ marginTop: 4, fontSize: 11 }}>
         Runs locally, only when the page structure alone is not enough.
       </p>
 
       <button
-        className="mt-3 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
+        className="pa-run pa-run-idle"
+        style={{ marginTop: 12, width: 'auto', padding: '8px 16px', fontSize: 12 }}
         onClick={runVisualCheck}
         disabled={running}
       >
         {running ? 'Checking…' : 'Run Visual Check'}
       </button>
 
-      {error !== null && <p className="mt-2 text-red-500">{error}</p>}
+      {error !== null && <p style={{ marginTop: 8, fontSize: 12, color: 'var(--pa-danger)' }}>{error}</p>}
 
       {engineState === 'loading' && (
-        <p className="mt-2 text-xs text-neutral-500" data-testid="vision-engine-state">
+        <p className="pa-faint" style={{ marginTop: 8, fontSize: 12 }} data-testid="vision-engine-state">
           ⏳ Vision engine loading (11MB)...
         </p>
       )}
       {engineState === 'ready' && (
-        <p className="mt-2 text-xs text-green-700" data-testid="vision-engine-state">
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--pa-accent)' }} data-testid="vision-engine-state">
           ✅ Vision engine ready
         </p>
       )}
       {engineState === 'failed' && (
-        <p className="mt-2 text-xs text-amber-600" data-testid="vision-engine-state">
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--pa-warning)' }} data-testid="vision-engine-state">
           ⚠️ Vision engine unavailable — using heuristics
         </p>
       )}
 
       {result !== null && (
-        <div className="mt-3 text-xs">
-          <p className="font-medium text-neutral-700">
+        <div style={{ marginTop: 12, fontSize: 12 }}>
+          <p className="font-medium" style={{ fontWeight: 600, color: 'var(--pa-text)' }}>
             {running ? STATUS_LABELS.running : STATUS_LABELS[result.status]}
           </p>
           {result.reason !== undefined && (
-            <p className="mt-1 text-neutral-500">
+            <p className="pa-faint" style={{ marginTop: 4 }}>
               Reason: {result.reason}
               {REASON_LABELS[result.reason] !== undefined && ` — ${REASON_LABELS[result.reason]}`}
             </p>
@@ -148,22 +149,22 @@ export function VisualStatus() {
           {result.reasonDetail !== undefined && result.reasonDetail.length > 0 && (
             // The browser's own capture-failure string (an API diagnostic, never pixels or
             // page text). Shown so the actual cause of an "unavailable" is visible, not hidden.
-            <p className="mt-1 text-neutral-400" data-testid="reason-detail">
+            <p className="pa-faint" style={{ marginTop: 4, opacity: 0.7 }} data-testid="reason-detail">
               Detail: {result.reasonDetail}
             </p>
           )}
-          <p className="mt-1 text-neutral-500">
+          <p className="pa-faint" style={{ marginTop: 4 }}>
             {result.metrics.regionsProcessed} analysed · {result.metrics.regionsFromCache} cached ·{' '}
             {result.metrics.durationMs} ms
           </p>
           {result.contentStatus !== undefined && (
-            <p className="mt-1 text-neutral-500">
+            <p className="pa-faint" style={{ marginTop: 4 }}>
               OCR: {CONTENT_STATUS_LABELS[result.contentStatus] ?? result.contentStatus}
             </p>
           )}
-          <ul className="mt-2">
+          <ul style={{ marginTop: 8, display: 'grid', gap: 4 }} className="pa-muted">
             {result.observations.map((observation) => (
-              <li key={observation.region.id} className="text-neutral-700">
+              <li key={observation.region.id}>
                 {observation.observations.join(', ')} ({observation.confidence.toFixed(2)}) —{' '}
                 {observation.region.width}×{observation.region.height}
               </li>

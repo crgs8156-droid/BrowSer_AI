@@ -4,6 +4,7 @@ import { App } from './App';
 import { installOcrEngine } from '../perception/register-ocr';
 import { installVisionEngine } from '../perception/register-vision';
 import './styles.css';
+import './theme.css';
 
 // Install the real local OCR engine for this document. Lazy: nothing heavy loads
 // until the visual pipeline first analyzes a captured region.

@@ -98,4 +98,21 @@ describe('privacy firewall', () => {
     );
     expect(verdict.allowed).toBe(true);
   });
+
+  it('accepts ARIA-hosted nodes (div/span/a) and still rejects unknown tags', async () => {
+    const firewall = createPrivacyFirewall();
+    const aria = cleanRequest({
+      sanitizedPageStructure: [
+        node({ selector: '#email', inputType: 'email', label: 'Email' }),
+        node({ selector: '#submit', tag: 'div', label: 'Submit' }),
+        node({ selector: '#menu', tag: 'span', label: 'Menu' }),
+        node({ selector: '#link', tag: 'a', label: 'Next' }),
+      ],
+    });
+    expect(await firewall.inspect(aria)).toEqual({ allowed: true, reason: 'OK' });
+    const bad = cleanRequest({
+      sanitizedPageStructure: [node({ selector: '#x', tag: 'script' as never })],
+    });
+    expect((await firewall.inspect(bad)).reason).toBe('FIREWALL_MALFORMED');
+  });
 });

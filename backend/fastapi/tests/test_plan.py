@@ -79,6 +79,18 @@ def test_plan_returns_empty_when_nothing_to_do():
     assert client.post("/v1/plan", json=done.model_dump()).json()["actions"] == []
 
 
+def test_plan_accepts_aria_host_nodes_and_ignores_them():
+    aria = make_request(
+        sanitizedPageStructure=[
+            SanitizedNode(tag="input", selector="#email", inputType="email", label="Email", filled=False, disabled=False),
+            SanitizedNode(tag="div", selector="#submit", label="Submit", filled=False, disabled=False),
+        ],
+    )
+    response = client.post("/v1/plan", json=aria.model_dump())
+    assert response.status_code == 200
+    assert response.json()["actions"] == [{"action": "TYPE", "target": "#email", "value": "USER_EMAIL_1"}]
+
+
 def test_plan_rejects_raw_alias_grammar_and_oversized_payloads():
     payload = make_request().model_dump()
     payload["aliases"] = [{"alias": "secret@example.test", "category": "EMAIL"}]

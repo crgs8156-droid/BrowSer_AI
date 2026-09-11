@@ -1,0 +1,418 @@
+/* PrivAgent dark glass-morphism theme (presentation only).
+ *
+ * No logic lives here: CSS variables, keyframes, scrollbars and reusable
+ * `pa-*` utility classes consumed by the sidepanel components. All icons are
+ * Unicode emoji or inline SVG — no external assets.
+ */
+
+:root {
+  --pa-bg: #0a0a0f;
+  --pa-surface: rgba(255, 255, 255, 0.04);
+  --pa-border: rgba(255, 255, 255, 0.08);
+  --pa-accent: #00d4aa;
+  --pa-secondary: #6366f1;
+  --pa-danger: #ef4444;
+  --pa-warning: #f59e0b;
+  --pa-text: #f8fafc;
+  --pa-muted: #94a3b8;
+  --pa-faint: #64748b;
+  --pa-dim: #475569;
+}
+
+/* Panel shell: dark canvas, Inter/system stack, antialiased. */
+.pa-root {
+  background: var(--pa-bg);
+  color: var(--pa-text);
+  min-height: 100vh;
+  font-family: -apple-system, 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin translucent scrollbars (panel + inner scroll regions). */
+.pa-root ::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.pa-root ::-webkit-scrollbar-track {
+  background: transparent;
+}
+.pa-root ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 2px;
+}
+.pa-root ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+/* Focus visibility for keyboard users (accent ring, no outline). */
+.pa-root :focus {
+  outline: none;
+}
+.pa-root :focus-visible {
+  box-shadow: 0 0 0 2px var(--pa-accent);
+}
+
+/* Generic glass card. */
+.pa-card {
+  background: var(--pa-surface);
+  border: 1px solid var(--pa-border);
+  border-radius: 12px;
+}
+
+/* Section label: 10px uppercase muted. */
+.pa-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--pa-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* Muted body copy on dark. */
+.pa-muted {
+  color: var(--pa-muted);
+}
+.pa-faint {
+  color: var(--pa-faint);
+}
+
+/* ---- Header ---- */
+.pa-header {
+  background: rgba(0, 0, 0, 0.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 14px 16px;
+}
+.pa-header-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--pa-text);
+}
+.pa-header-sub {
+  font-size: 11px;
+  color: var(--pa-faint);
+  letter-spacing: 0.3px;
+}
+.pa-ondevice {
+  background: rgba(0, 212, 170, 0.12);
+  border: 1px solid rgba(0, 212, 170, 0.3);
+  color: var(--pa-accent);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.pa-shield-spin {
+  animation: pa-rotate 2.4s linear infinite;
+  transform-origin: center;
+}
+@keyframes pa-rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.pa-dot {
+  display: inline-block;
+}
+.pa-dot-pulse {
+  animation: pa-pulse 2s ease-in-out infinite;
+}
+@keyframes pa-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* ---- Tabs ---- */
+.pa-tabs {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 4px;
+  margin: 12px 12px 0;
+  display: flex;
+  gap: 4px;
+}
+.pa-tab {
+  flex: 1;
+  font-size: 12px;
+  color: var(--pa-faint);
+  border: 1px solid transparent;
+  border-radius: 7px;
+  padding: 6px 4px;
+  background: transparent;
+  transition: all 200ms ease;
+  white-space: nowrap;
+}
+.pa-tab:hover {
+  color: var(--pa-muted);
+}
+.pa-tab-active {
+  background: rgba(0, 212, 170, 0.15);
+  border-color: rgba(0, 212, 170, 0.25);
+  color: var(--pa-accent);
+  font-weight: 600;
+}
+.pa-tabpane {
+  animation: pa-pane-in 150ms ease;
+}
+@keyframes pa-pane-in {
+  from {
+    opacity: 0;
+    transform: translateX(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* ---- Chips (task templates) ---- */
+.pa-chips {
+  scrollbar-width: none;
+}
+.pa-chips::-webkit-scrollbar {
+  display: none;
+}
+.pa-chip {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--pa-muted);
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  transition: all 200ms ease;
+  white-space: nowrap;
+}
+.pa-chip:hover {
+  border-color: rgba(0, 212, 170, 0.4);
+  color: var(--pa-accent);
+}
+
+/* ---- Inputs ---- */
+.pa-label {
+  font-size: 11px;
+  color: var(--pa-faint);
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.pa-textarea,
+.pa-input {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--pa-border);
+  border-radius: 10px;
+  color: var(--pa-text);
+  font-size: 13px;
+  padding: 12px 14px;
+  width: 100%;
+  transition:
+    border-color 200ms ease,
+    box-shadow 200ms ease;
+}
+.pa-textarea::placeholder,
+.pa-input::placeholder {
+  color: var(--pa-dim);
+}
+.pa-textarea:focus,
+.pa-input:focus {
+  border-color: rgba(0, 212, 170, 0.4);
+  box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.08);
+}
+.pa-textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+/* ---- Run button states ---- */
+.pa-run {
+  width: 100%;
+  border: none;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 12px 20px;
+  letter-spacing: 0.3px;
+  transition: all 200ms ease;
+}
+.pa-run-idle {
+  background: linear-gradient(135deg, #00d4aa, #0891b2);
+  color: #0a0a0f;
+  box-shadow: 0 4px 15px rgba(0, 212, 170, 0.25);
+}
+.pa-run-idle:hover:not(:disabled) {
+  box-shadow: 0 6px 20px rgba(0, 212, 170, 0.4);
+  transform: translateY(-1px);
+}
+.pa-run-idle:disabled {
+  opacity: 0.5;
+}
+.pa-run-busy {
+  background: rgba(0, 212, 170, 0.1);
+  border: 1px solid rgba(0, 212, 170, 0.3);
+  color: var(--pa-accent);
+}
+.pa-run-warn {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  color: var(--pa-warning);
+}
+.pa-run-done {
+  background: rgba(0, 212, 170, 0.08);
+  border: 1px solid rgba(0, 212, 170, 0.2);
+  color: var(--pa-accent);
+}
+.pa-run-error {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: var(--pa-danger);
+}
+.pa-spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid rgba(0, 212, 170, 0.2);
+  border-top-color: var(--pa-accent);
+  animation: pa-spin 0.8s linear infinite;
+  vertical-align: -3px;
+  margin-right: 8px;
+}
+@keyframes pa-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Step log ---- */
+.pa-steplog {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  max-height: 160px;
+  overflow-y: auto;
+  padding: 10px 12px;
+  margin-top: 10px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+}
+.pa-steplog li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+  color: var(--pa-muted);
+  animation: pa-step-in 150ms ease;
+}
+.pa-steplog li:last-child {
+  color: var(--pa-text);
+  border-bottom: none;
+}
+@keyframes pa-step-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ---- Latency card ---- */
+.pa-latency {
+  background: rgba(99, 102, 241, 0.06);
+  border: 1px solid rgba(99, 102, 241, 0.15);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+.pa-latency-title {
+  color: var(--pa-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.pa-bar {
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  overflow: hidden;
+}
+.pa-bar > span {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #00d4aa, #6366f1);
+}
+
+/* ---- Privacy footer strip ---- */
+.pa-footer-ok {
+  background: rgba(0, 212, 170, 0.08);
+  border-top: 1px solid rgba(0, 212, 170, 0.15);
+  padding: 10px 16px;
+}
+.pa-footer-blocked {
+  background: rgba(239, 68, 68, 0.08);
+  border-top: 1px solid rgba(239, 68, 68, 0.2);
+  padding: 10px 16px;
+}
+.pa-leak-badge {
+  background: rgba(0, 212, 170, 0.15);
+  color: var(--pa-accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+/* ---- Audit / vault cards ---- */
+.pa-audit-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+.pa-badge-pass {
+  background: rgba(0, 212, 170, 0.1);
+  color: var(--pa-accent);
+  border: 1px solid rgba(0, 212, 170, 0.2);
+}
+.pa-badge-fail {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--pa-danger);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+.pa-badge-warn {
+  background: rgba(245, 158, 11, 0.1);
+  color: var(--pa-warning);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+.pa-alias {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--pa-secondary);
+  font-weight: 600;
+}
+.pa-cat-badge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(99, 102, 241, 0.1);
+  color: #8b5cf6;
+}
+.pa-masked {
+  font-family: monospace;
+  font-size: 11px;
+  color: var(--pa-dim);
+}

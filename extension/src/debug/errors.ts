@@ -35,7 +35,14 @@ const MAP: Record<string, { category: ErrorCategory; recoverable: boolean; messa
   'llm_parse': { category: 'llm_parse', recoverable: true, message: 'AI returned unexpected response', hint: 'Check OLLAMA_MODEL supports JSON output' },
   'JSON_PARSE': { category: 'llm_parse', recoverable: true, message: 'AI returned unexpected response', hint: 'LLM returned non-JSON' },
   // firewall
+  // firewall — one entry per distinct verdict so structural blocks are never
+  // misreported as PII detections (fail-closed either way; the copy differs).
   'FIREWALL_BLOCKED': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Raw PII detected — request not sent (fail-closed)' },
+  'FIREWALL_PII_DETECTED': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Raw PII detected in payload — request not sent (fail-closed)' },
+  'FIREWALL_MALFORMED': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Malformed payload shape — request not sent (fail-closed; not a content hit)' },
+  'FIREWALL_BAD_ALIAS': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Invalid alias grammar — request not sent (fail-closed)' },
+  'FIREWALL_BAD_ACTIONS': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Invalid action vocabulary — request not sent (fail-closed)' },
+  'FIREWALL_UNEXPECTED_FIELD': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Unexpected payload field — request not sent (fail-closed)' },
   'firewall_block': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'PII detected in payload' },
   'PII_DETECTED': { category: 'firewall_block', recoverable: false, message: 'Privacy firewall blocked this request', hint: 'Raw PII in request' },
   // dom

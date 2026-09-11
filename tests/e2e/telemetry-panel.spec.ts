@@ -54,7 +54,8 @@ test('telemetry dashboard fills from scan + agent run, never showing raw values'
   expect(telemetryText).not.toContain('student@example.test');
   expect(telemetryText).not.toContain('555-010-0009');
 
-  // 4 — reset clears everything.
+  // 4 — reset clears everything (audit lives on the Audit tab).
+  await panel.getByTestId('tab-audit').dispatchEvent('click');
   await panel.getByRole('button', { name: 'Reset' }).dispatchEvent('click');
   await expect(panel.getByTestId('telemetry')).toContainText('No telemetry yet');
 });

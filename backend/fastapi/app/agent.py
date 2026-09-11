@@ -37,7 +37,10 @@ SUBMIT_TASK_VERBS = re.compile(r"\b(submit|send|continue|next|sign in|log in|log
 
 
 class SanitizedNode(BaseModel):
-    tag: Literal["input", "textarea", "select", "button"]
+    # div/span/a mirror the extension FieldStructure: ARIA-hosted controls.
+    # The planner ignores them as fields/submits (see _is_field below); they
+    # only ever carry selector+label, never values.
+    tag: Literal["input", "textarea", "select", "button", "div", "span", "a"]
     selector: str = Field(min_length=1, max_length=512)
     inputType: str | None = None
     label: str | None = None

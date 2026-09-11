@@ -57,55 +57,58 @@ export function TelemetryPanel() {
   const hasTimings = summary.timings.length > 0;
 
   return (
-    <section className="mt-6 border-t border-neutral-200 pt-4" aria-label="Telemetry" data-testid="telemetry">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">Telemetry</h2>
+    <section className="pa-card" style={{ padding: '12px 14px' }} aria-label="Telemetry" data-testid="telemetry">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <p className="pa-section-label">Privacy audit</p>
         <button
-          className="text-xs text-neutral-500 underline"
+          className="pa-faint"
+          style={{ fontSize: 12, textDecoration: 'underline' }}
           onClick={() => sessionTelemetry.clear()}
           disabled={!hasEvents && !hasTimings}
         >
           Reset
         </button>
       </div>
-      <p className="mt-1 text-xs text-neutral-500">
+      <p className="pa-faint" style={{ marginTop: 4, fontSize: 11 }}>
         Counts and stage timings only — never values (fail-closed recorder).
       </p>
 
       {!hasEvents && !hasTimings ? (
-        <p className="mt-2 text-xs text-neutral-500">No telemetry yet — run a scan or an agent task.</p>
+        <p className="pa-faint" style={{ marginTop: 8, fontSize: 12 }}>No telemetry yet — run a scan or an agent task.</p>
       ) : (
         <>
           {hasEvents && (
-            <div className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-xs" data-testid="telemetry-events">
+            <div className="pa-audit-card" style={{ marginTop: 8, marginBottom: 0 }} data-testid="telemetry-events">
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 12 }}>
               {summary.events
                 .filter((row) => row.count > 0)
                 .map((row) => (
-                  <span key={row.type} className="text-neutral-700">
-                    {row.type}: <strong>{row.count}</strong>
+                  <span key={row.type} className="pa-muted">
+                    {row.type}: <strong style={{ color: 'var(--pa-text)' }}>{row.count}</strong>
                   </span>
                 ))}
+              </div>
             </div>
           )}
           {hasTimings && (
-            <table className="mt-3 w-full text-xs" data-testid="telemetry-timings">
+            <table className="pa-audit-card" style={{ marginTop: 8, marginBottom: 0, width: '100%', fontSize: 12 }} data-testid="telemetry-timings">
               <thead>
-                <tr className="text-left text-neutral-500">
-                  <th className="font-medium">Stage</th>
-                  <th className="font-medium">Runs</th>
-                  <th className="font-medium">p50 ms</th>
-                  <th className="font-medium">p95 ms</th>
-                  <th className="font-medium">max ms</th>
+                <tr style={{ textAlign: 'left' }} className="pa-faint">
+                  <th style={{ fontWeight: 500 }}>Stage</th>
+                  <th style={{ fontWeight: 500 }}>Runs</th>
+                  <th style={{ fontWeight: 500 }}>p50 ms</th>
+                  <th style={{ fontWeight: 500 }}>p95 ms</th>
+                  <th style={{ fontWeight: 500 }}>max ms</th>
                 </tr>
               </thead>
               <tbody>
                 {summary.timings.map((row) => (
-                  <tr key={row.name} className="border-t border-neutral-100">
-                    <td className="py-0.5 font-mono">{row.name}</td>
-                    <td>{row.count}</td>
-                    <td>{row.p50Ms.toFixed(1)}</td>
-                    <td>{row.p95Ms.toFixed(1)}</td>
-                    <td>{row.maxMs.toFixed(1)}</td>
+                  <tr key={row.name} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <td style={{ padding: '2px 0', fontFamily: 'monospace', color: 'var(--pa-text)' }}>{row.name}</td>
+                    <td className="pa-muted">{row.count}</td>
+                    <td className="pa-muted">{row.p50Ms.toFixed(1)}</td>
+                    <td className="pa-muted">{row.p95Ms.toFixed(1)}</td>
+                    <td className="pa-muted">{row.maxMs.toFixed(1)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -115,16 +118,18 @@ export function TelemetryPanel() {
       )}
 
       {reportToast !== null && (
-        <p className="mt-2 text-xs text-green-700" data-testid="report-toast">
+        <p style={{ marginTop: 8, fontSize: 12, color: 'var(--pa-accent)' }} data-testid="report-toast">
           {reportToast}
         </p>
       )}
 
-      <div className="mt-4 border-t border-neutral-100 pt-3" aria-label="Session Log">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs font-semibold">Session Log</h3>
+      <div className="pa-audit-card" style={{ marginTop: 8, marginBottom: 0 }} aria-label="Session Log">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <p className="pa-section-label">Session Log</p>
+          <div style={{ display: 'flex', gap: 8 }}>
           <button
-            className="text-xs text-blue-600 underline disabled:opacity-50"
+            className="pa-faint"
+            style={{ fontSize: 12, textDecoration: 'underline' }}
             data-testid="audit-export"
             onClick={exportAudit}
             disabled={auditEntries.length === 0}
@@ -132,7 +137,7 @@ export function TelemetryPanel() {
             Export JSON
           </button>
           <button
-            className="text-xs text-blue-600 underline"
+            style={{ fontSize: 12, borderRadius: 8, padding: '8px 14px', background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)', color: 'var(--pa-secondary)' }}
             data-testid="report-export"
             onClick={() => {
               void exportReportAsJSON().then((started) => {
@@ -144,14 +149,15 @@ export function TelemetryPanel() {
           >
             📊 Export Report
           </button>
+          </div>
         </div>
         {auditEntries.length === 0 ? (
-          <p className="mt-1 text-xs text-neutral-500">No audit events yet.</p>
+          <p className="pa-faint" style={{ marginTop: 4, fontSize: 12 }}>No audit events yet.</p>
         ) : (
-          <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto text-xs" data-testid="audit-log">
+          <ul className="pa-steplog" style={{ marginTop: 8, maxHeight: 192 }} data-testid="audit-log">
             {auditEntries.slice(-20).map((entry) => (
-              <li key={`${entry.timestamp}-${entry.type}-${entry.stepNumber ?? ''}`} className="font-mono text-neutral-700">
-                <span className="text-neutral-400">{formatAuditTime(entry.timestamp)}</span>{' '}
+              <li key={`${entry.timestamp}-${entry.type}-${entry.stepNumber ?? ''}`}>
+                <span style={{ color: 'var(--pa-dim)' }}>{formatAuditTime(entry.timestamp)}</span>{' '}
                 <span aria-hidden="true">{AUDIT_ICONS[entry.type]}</span>{' '}
                 <span>{entry.detail}</span>
               </li>

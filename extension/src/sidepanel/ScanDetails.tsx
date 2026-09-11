@@ -87,61 +87,61 @@ export function ScanDetails({ summary, findings, fields, policy }: ScanDetailsPr
   if (!summary) return null;
 
   return (
-    <section className="mt-4 rounded border border-neutral-200 p-3" aria-label="Scan details" data-testid="scan-details">
+    <section className="pa-card" style={{ marginTop: 10, padding: '12px 14px' }} aria-label="Scan details" data-testid="scan-details">
       <button
-        className="flex w-full items-center justify-between text-left"
+        style={{ display: 'flex', width: '100%', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left' }}
         data-testid="scan-details-toggle"
         onClick={() => setExpanded((v) => !v)}
       >
-        <span className="text-sm font-semibold">🔍 Scan Details ({count} items)</span>
-        <span className="text-xs text-neutral-500">{expanded ? '\u25B2' : '\u25BC'}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--pa-text)' }}>🔍 Scan Details ({count} items)</span>
+        <span className="pa-faint" style={{ fontSize: 12 }}>{expanded ? '\u25B2' : '\u25BC'}</span>
       </button>
 
       {(expanded || !hasPII) && (
-        <div className="mt-2">
+        <div style={{ marginTop: 8 }}>
           {hasPII ? (
             <>
               <div data-testid="detected-pii">
-                <h4 className="text-xs font-semibold">Detected PII</h4>
-                <table className="mt-1 w-full text-xs" data-testid="pii-table">
+                <p className="pa-section-label">Detected PII</p>
+                <table style={{ marginTop: 4, width: '100%', fontSize: 12 }} data-testid="pii-table">
                   <thead>
-                    <tr className="text-left text-neutral-500">
+                    <tr style={{ textAlign: 'left' }} className="pa-faint">
                       <th>Category</th><th>Alias</th><th>Masked Value</th><th>Found In</th><th>Confidence</th>
                     </tr>
                   </thead>
                   <tbody>
                     {findings.map((f) => (
-                      <tr key={f.alias} className="border-t border-neutral-100" data-testid="pii-row">
-                        <td>{categoryIcon(f.category)} {f.label}</td>
-                        <td className="font-mono">{f.alias}</td>
-                        <td className="font-mono">{f.masked}</td>
-                        <td>{f.source}</td>
-                        <td>{f.confidence ?? 'High'}</td>
+                      <tr key={f.alias} style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }} data-testid="pii-row">
+                        <td style={{ color: 'var(--pa-text)' }}>{categoryIcon(f.category)} {f.label}</td>
+                        <td style={{ fontFamily: 'monospace', color: 'var(--pa-secondary)' }}>{f.alias}</td>
+                        <td className="pa-masked">{f.masked}</td>
+                        <td className="pa-muted">{f.source}</td>
+                        <td className="pa-muted">{f.confidence ?? 'High'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
 
-              <div className="mt-3" data-testid="fields-analyzed">
-                <h4 className="text-xs font-semibold">Fields analyzed</h4>
-                <p className="text-xs text-neutral-600">
+              <div style={{ marginTop: 12 }} data-testid="fields-analyzed">
+                <p className="pa-section-label">Fields analyzed</p>
+                <p className="pa-muted" style={{ fontSize: 12 }}>
                   Analyzed {fields.inputs} input fields, {fields.textareas} text areas, {fields.labels} labels
                 </p>
-                <p className="text-xs text-neutral-600">Detected: {fields.sensitive} sensitive, {fields.safe} safe</p>
+                <p className="pa-muted" style={{ fontSize: 12 }}>Detected: {fields.sensitive} sensitive, {fields.safe} safe</p>
               </div>
 
-              <div className="mt-3" data-testid="policy-decision">
-                <h4 className="text-xs font-semibold">Policy decision</h4>
-                <p className="text-xs">{policy.decision}</p>
-                <p className="text-xs text-neutral-500">Policy signals: {policy.signals.join(' ') || 'none'}</p>
-                <p className="text-xs text-neutral-500">Mode: {policy.mode}</p>
+              <div style={{ marginTop: 12 }} data-testid="policy-decision">
+                <p className="pa-section-label">Policy decision</p>
+                <p style={{ fontSize: 12, color: 'var(--pa-text)' }}>{policy.decision}</p>
+                <p className="pa-faint" style={{ fontSize: 12 }}>Policy signals: {policy.signals.join(' ') || 'none'}</p>
+                <p className="pa-faint" style={{ fontSize: 12 }}>Mode: {policy.mode}</p>
               </div>
             </>
           ) : (
             <div data-testid="nothing-detected">
-              <p className="text-xs text-green-700">\u2705 No sensitive fields detected on this page</p>
-              <p className="text-xs text-neutral-500">Analyzed {fields.total} fields \u2014 all appear safe</p>
+              <p style={{ fontSize: 12, color: 'var(--pa-accent)' }}>\u2705 No sensitive fields detected on this page</p>
+              <p className="pa-faint" style={{ fontSize: 12 }}>Analyzed {fields.total} fields \u2014 all appear safe</p>
             </div>
           )}
         </div>
