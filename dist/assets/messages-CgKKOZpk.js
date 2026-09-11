@@ -1,0 +1,1 @@
+var e=`COLLECT_VISUAL_CANDIDATES`,t=`SCAN_PAGE`,n=`SCROLL_VIEWPORT`,r=`CAPTURE_VIEWPORT`,i=`EXECUTE_ACTION`;export{n as a,t as i,e as n,i as r,r as t};

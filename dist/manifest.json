@@ -1,0 +1,54 @@
+{
+  "manifest_version": 3,
+  "name": "PrivAgent",
+  "version": "0.1.0",
+  "description": "Privacy-preserving AI browser agent for the SIH project.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "background": {
+    "service_worker": "service-worker-loader.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "PrivAgent"
+  },
+  "side_panel": {
+    "default_path": "extension/src/sidepanel/index.html"
+  },
+  "content_scripts": [
+    {
+      "js": [
+        "assets/index.js-loader-CKymG3aH.js"
+      ],
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "resources": [
+        "assets/messages-CgKKOZpk.js",
+        "assets/collect-candidates-BgvMUs0i.js",
+        "assets/index.js-QCx-244t.js"
+      ],
+      "use_dynamic_url": false
+    }
+  ]
+}

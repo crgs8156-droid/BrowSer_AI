@@ -1,0 +1,43 @@
+PrivAgent — Third-Party Model Provenance
+
+This directory (`extension/public/models/` + `dist/models/` after build) contains
+pre-trained model weights bundled as extension assets (loaded via
+chrome.runtime.getURL, never fetched at runtime).
+
+1. blazeface.onnx (524 KB)
+   - Source: manthi4/End-to-end-BlazeFace-Onnx — T_mpipe_bface_boxes_ops16.onnx
+     (MediaPipe BlazeFace front, end-to-end NCHW [1,3,128,128] export with 0.7
+     confidence threshold + NMS baked into the graph; T_mpipe variant).
+   - Retrieved: https://raw.githubusercontent.com/manthi4/End-to-end-BlazeFace-Onnx/main/T_mpipe_bface_boxes_ops16.onnx
+   - License: MIT (repository declares MIT; unencumbered for bundling).
+   - Modifications: renamed to blazeface.onnx, copied by vite plugin
+     copyOnnxAssets (`vite.config.ts`) to dist/models/.
+
+2. icon-detect-640.onnx (12 MB)
+   - Source: Derived from Microsoft OmniParser
+     https://github.com/microsoft/OmniParser (OmniParser icon detection model,
+     640px input, YOLO-based). The ONNX export used here is the conversion
+     distributed as icon-detect-640.onnx in this repository.
+   - License: GNU Affero General Public License v3.0 (AGPL-3.0).
+   - Copyright: Microsoft Corporation — see upstream LICENSE.
+   - Modifications: converted to ONNX, renamed to icon-detect-640.onnx.
+     No functional changes to the detection logic.
+
+AGPL-3.0 Implications
+
+Because `icon-detect-640.onnx` (AGPL-3.0) is bundled into the PrivAgent extension
+(`dist/`), the Combined Work as distributed is licensed under AGPL-3.0. See the
+repository root LICENSE (AGPL-3.0 full text + PrivAgent additional notice) and
+https://www.gnu.org/licenses/agpl-3.0.html.
+
+Corresponding Source for the Combined Work is available at:
+  https://github.com/crgs8156-droid/BrowSer_AI
+  https://github.com/codesR-cs/BrowSer_AI
+including all source, build scripts (vite.config.ts, scripts/), and this directory.
+
+If you distribute a modified version of PrivAgent that still bundles
+icon-detect-640.onnx, you must convey it under AGPL-3.0. To keep a build
+permissively licensed (MIT), remove icon-detect-640.onnx and the registered
+vision provider that loads it (extension/src/perception/visual/providers/
+vision-onnx.ts) — the remaining M3–M7 pipeline, blazeface, and Tesseract
+assets are MIT/Apache-2.0 compatible.
