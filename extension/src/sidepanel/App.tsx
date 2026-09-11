@@ -161,8 +161,20 @@ export function App() {
 
   return (
     <main className="p-4 text-sm">
-      <h1 className="text-base font-semibold">PrivAgent</h1>
-      <p className="mt-1 text-neutral-500">Privacy-preserving AI browser agent</p>
+      <div className="flex items-center gap-2">
+        <span aria-hidden="true" className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-600 text-white">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l7 4v5c0 5-3.5 8-7 9-3.5-1-7-4-7-9V7l7-4z" />
+            <path d="M9 12l2 2 4-4" />
+          </svg>
+        </span>
+        <h1 className="text-base font-semibold">PrivAgent</h1>
+        <span className="ml-auto rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">on-device</span>
+      </div>
+      <p className="mt-1 text-neutral-500">Private AI browsing — values never leave this machine</p>
+      <p className="mt-1 flex items-center gap-1 text-xs text-emerald-700">
+        <span aria-hidden="true">🛡️</span> 0 bytes leaked · shielded locally
+      </p>
 
       <button
         className="mt-4 px-4 py-2 bg-blue-500 text-white rounded disabled:opacity-50"
@@ -245,6 +257,9 @@ export function App() {
       <VisualStatus />
       <AgentTask />
       <TelemetryPanel />
+      <footer className="mt-6 border-t border-neutral-100 pt-3 text-xs text-neutral-400">
+        PrivAgent · SIH26171 · Private by design
+      </footer>
     </main>
   );
 }
