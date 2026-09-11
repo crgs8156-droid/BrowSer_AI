@@ -1357,8 +1357,8 @@ _Added 2026-09-02._
 
 Wired a LOCAL open-weights model into the `AGENT_PROVIDER` seam alongside Gemini:
 `AGENT_PROVIDER=ollama` selects `OllamaProvider`, which talks to host Ollama
-(`OLLAMA_URL`, default `http://localhost:11434`; `OLLAMA_MODEL`, default `gemma3:12b` —
-point it at your exact Gemma tag). The panel toggle is now a 3-way radio with **Local
+(`OLLAMA_URL`, default `http://localhost:11434`; `OLLAMA_MODEL`, default `qwen2.5vl:3b` —
+point it at your exact Ollama tag). The panel toggle is now a 3-way radio with **Local
 AI (Ollama)** as the default, plus **Gemini** and **Offline** (in-extension deterministic
 planner, zero network).
 
@@ -1391,9 +1391,9 @@ planner, zero network).
 
 ### Known limitations
 
-- Live Gemma inference is a manual demo step (requires Ollama + the model pulled on the
+- Live Ollama inference is a manual demo step (requires Ollama + the model pulled on the
   host; CI runs the mocked path).
-- Gemma 3 12B is multimodal — vision-capable planning (feeding visual context/rasters to
+- Qwen2.5-VL 3B is vision-capable — vision planning (feeding visual context/rasters to
   the planner) is the future direction; the current planner contract is text/structure
   only, matching Gemini.
 
