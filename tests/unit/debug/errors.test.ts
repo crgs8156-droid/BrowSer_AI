@@ -28,6 +28,14 @@ describe('error classifier', () => {
     expect(e.category).toBe('permission');
     expect(e.recoverable).toBe(false);
   });
+  it('structural firewall verdicts never claim PII', () => {
+    const malformed = classifyError('FIREWALL_MALFORMED');
+    expect(malformed.category).toBe('firewall_block');
+    expect(malformed.debugHint).not.toMatch(/PII/i);
+    const pii = classifyError('FIREWALL_PII_DETECTED');
+    expect(pii.category).toBe('firewall_block');
+    expect(pii.debugHint).toMatch(/PII/i);
+  });
   it('All categories have non-empty message', () => {
     const cats = ['network','llm_timeout','llm_parse','firewall_block','dom_access','model_load','permission','captcha','max_steps','vault_empty','unknown'];
     for (const c of cats) {

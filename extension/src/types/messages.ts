@@ -51,7 +51,10 @@ export interface ScanPageResponse {
  * data: it stays inside the extension context and is never logged, rendered, or sent.
  */
 export interface FieldStructure {
-  tag: 'input' | 'textarea' | 'select' | 'button';
+  // Item-3 ARIA hosts: the collector also emits div/span/a for [role="button"],
+  // [role="textbox"] and [contenteditable] elements. They carry selector+label
+  // only (never a value) — see collectFieldStructure().
+  tag: 'input' | 'textarea' | 'select' | 'button' | 'div' | 'span' | 'a';
   /** Deterministic CSS selector (id → name → injected `data-priv-idx` attribute). */
   selector: string;
   id?: string;

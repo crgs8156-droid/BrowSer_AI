@@ -63,7 +63,7 @@ function allow(): FirewallVerdict {
 function isValidNode(node: unknown): boolean {
   if (typeof node !== 'object' || node === null) return false;
   const n = node as Record<string, unknown>;
-  if (!['input', 'textarea', 'select', 'button'].includes(n['tag'] as string)) return false;
+  if (!['input', 'textarea', 'select', 'button', 'div', 'span', 'a'].includes(n['tag'] as string)) return false;
   if (typeof n['selector'] !== 'string' || n['selector'].length === 0) return false;
   if (typeof n['filled'] !== 'boolean' || typeof n['disabled'] !== 'boolean') return false;
   for (const optional of ['inputType', 'label', 'name']) {
