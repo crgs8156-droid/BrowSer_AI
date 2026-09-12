@@ -420,4 +420,34 @@ describe('toSanitizedNodes', () => {
     expect(nodes.map((n) => n.tag)).toEqual(['div', 'div', 'input']);
     expect(nodes.every((n) => n.selector.length > 0)).toBe(true);
   });
+
+  it('coerces undefined disabled (ARIA non-form elements) so Google-class pages pass the firewall', async () => {
+    // The content script reads `.disabled` off EVERY element, but only form
+    // controls have that property — an ARIA div arrives with disabled: undefined,
+    // which used to MALFORMED the entire payload (live: node index 1 of 63).
+    const structure = [
+      { tag: 'input', selector: '#q', label: 'Search', value: '', disabled: false },
+      { tag: 'div', selector: '#r1', label: 'All', disabled: undefined },
+    ] as unknown as Parameters<typeof toSanitizedNodes>[0];
+    const nodes = toSanitizedNodes(structure);
+    expect(nodes[1]).toMatchObject({ tag: 'div', disabled: false });
+    const verdict = await createPrivacyFirewall().inspect({
+      taskObjective: 'summarize this page',
+      pageOrigin: 'https://www.google.com',
+      sanitizedPageStructure: nodes,
+      sanitizedVisibleText: 'Search results',
+      aliases: [],
+      availableActions: ['CLICK', 'TYPE', 'SELECT', 'SCROLL', 'NAVIGATE'],
+      policy: { privacyMode: 'strict', navigationAllowlist: [] },
+    });
+    expect(verdict).toEqual({ allowed: true, reason: 'OK' });
+  });
+
+  it('skips selector-less nodes instead of emitting firewall-rejected shapes', () => {
+    const nodes = toSanitizedNodes([
+      { tag: 'input', selector: '', label: 'Nope', disabled: false },
+      { tag: 'input', selector: '#ok', label: 'Fine', disabled: false },
+    ] as unknown as Parameters<typeof toSanitizedNodes>[0]);
+    expect(nodes.map((n) => n.selector)).toEqual(['#ok']);
+  });
 });
