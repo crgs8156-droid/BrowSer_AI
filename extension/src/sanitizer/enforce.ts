@@ -40,6 +40,12 @@ export interface EnforceInput {
   sessionId: string;
   /** Local alias↔value store. Never serialised or transmitted. */
   vault: LocalVault;
+  /**
+   * User-stated task objective (optional). Lets the policy layer lift a BLOCK
+   * verdict for navigation-only tasks, which never submit page data. Absent ⇒
+   * legacy behavior (BLOCK preserved). Never content-scanned, never transmitted.
+   */
+  taskObjective?: string;
   /** Injectable clock for `AliasRecord.createdAt`. Defaults to Date.now. */
   now?: () => number;
 }
@@ -59,7 +65,7 @@ export async function enforcePrivacy(input: EnforceInput): Promise<EnforcementRe
   const pageText = typeof input.pageText === 'string' ? input.pageText : '';
   const now = input.now ?? Date.now;
 
-  const report = decidePolicyReport(signals);
+  const report = decidePolicyReport(signals, input.taskObjective);
 
   // Index the raw entities by their upstream id so a finding can recover the
   // value it must redact. Only well-formed, identifiable entities are indexed.

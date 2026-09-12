@@ -29,6 +29,7 @@ import type { LocalVault } from '../vault';
 import type { PrivacyFirewall } from '../firewall';
 import type { AgentGateway } from './index';
 import { isOriginAllowlisted, originOfUrl, setNavigationAllowlist } from './session-policy';
+import { isNavigationOnlyTask } from './services';
 import { getProgressFingerprint } from './progress';
 import { classifyRisk } from './risk';
 import type { RiskLevel } from './risk';
@@ -320,11 +321,30 @@ async function runLoop(options: AgentLoopOptions): Promise<AgentRunResult> {
       pageText: observed.pageText,
       sessionId: options.sessionId,
       vault: options.vault,
+      // Lets the policy lift BLOCK verdicts for navigation-only tasks.
+      taskObjective: options.task,
     });
     stage.enforceMs += performance.now() - enforceStartedAt;
     // Fail closed: a page we cannot fully neutralize (or that carries a critical
-    // credential) never produces an outbound request.
-    if (enforcement.blocked) return stop('blocked', 'PAGE_BLOCKED');
+    // credential) never produces an outbound request — unless the task is
+    // navigation-only, in which case the policy already downgraded BLOCK to
+    // SANITIZE (values stay aliased either way).
+    if (enforcement.blocked) {
+      try {
+        const topSev = enforcement.findings.reduce(
+          (acc, f) => (f.severity === 'critical' ? 'critical' : acc),
+          'none' as string,
+        );
+        emitTrace({
+          stage: 'Policy BLOCK',
+          detail: `PAGE_BLOCKED sev:${topSev} pg:${visualContext.pageType} nav:${isNavigationOnlyTask(options.task) ? 1 : 0}`,
+          isError: true,
+        });
+      } catch {
+        // ignore - diagnostics never break the stop
+      }
+      return stop('blocked', 'PAGE_BLOCKED');
+    }
     if (enforcement.restricted) return stop('restricted');
     if (!enforcement.enforced) return stop('not_enforced', 'FINDINGS_UNRESOLVED');
 

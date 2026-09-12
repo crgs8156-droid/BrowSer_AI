@@ -41,3 +41,45 @@ export function extractServiceUrl(taskObjective: string): string | null {
   }
   return null;
 }
+
+const NAVIGATION_VERBS = [
+  'open',
+  'go to',
+  'navigate to',
+  'visit',
+  'take me to',
+  'load',
+  'search for',
+];
+
+/** Task verbs that imply filling, submitting, or handling credentials/payment. */
+const CREDENTIAL_VERBS = /\blogin\b|\bpassword\b|\bcredential\b|\bsign.?in\b|\bauth\b/i;
+const PAYMENT_VERBS = /\bpay\b|\bcard\b|\bupi\b|\bcheckout\b|\bpurchase\b|\bbuy\b/i;
+const FILL_SUBMIT_VERBS = /\bfill\b|\bsubmit\b|\benter\b/i;
+
+/** True when the task handles credentials (login, password, sign-in, auth). */
+export function taskInvolvesCredentials(taskObjective: string): boolean {
+  return CREDENTIAL_VERBS.test(taskObjective ?? '');
+}
+
+/** True when the task handles payment (pay, card, UPI, checkout, purchase). */
+export function taskInvolvesPayment(taskObjective: string): boolean {
+  return PAYMENT_VERBS.test(taskObjective ?? '');
+}
+
+/**
+ * True for navigation-only tasks ("open youtube"): starts with a navigation
+ * verb and names no fill/submit/credential/payment intent. Navigation tasks
+ * never submit page data, so credential-bearing pages are a false-positive
+ * BLOCK for them (the values stay aliased; see the policy downgrade).
+ */
+export function isNavigationOnlyTask(taskObjective: string): boolean {
+  const lower = (taskObjective ?? '').toLowerCase().trim();
+  const navigates = NAVIGATION_VERBS.some((verb) => lower.startsWith(verb));
+  if (!navigates) return false;
+  return (
+    !taskInvolvesCredentials(taskObjective) &&
+    !taskInvolvesPayment(taskObjective) &&
+    !FILL_SUBMIT_VERBS.test(taskObjective)
+  );
+}
