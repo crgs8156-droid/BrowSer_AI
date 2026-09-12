@@ -28,7 +28,7 @@
   "content_scripts": [
     {
       "js": [
-        "assets/index.js-loader-DCyMB69V.js"
+        "assets/index.js-loader-nlR72Zcn.js"
       ],
       "matches": [
         "http://*/*",
@@ -46,7 +46,7 @@
       "resources": [
         "assets/messages-CgKKOZpk.js",
         "assets/collect-candidates-BgvMUs0i.js",
-        "assets/index.js-msSSUP5m.js"
+        "assets/index.js-BQyXYDRK.js"
       ],
       "use_dynamic_url": false
     }
