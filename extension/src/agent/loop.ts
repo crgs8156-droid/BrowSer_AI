@@ -140,6 +140,10 @@ export function toSanitizedNodes(structure: ScanPageResponse['structure']): Sani
     // Null entries carry no data — skip instead of throwing (which would crash
     // the loop into LOOP_CRASHED). Real elements are always objects.
     if (typeof field !== 'object' || field === null) continue;
+    // A control without a selector is untargetable (the bridge plans by
+    // selector), so it is useless to the planner — skip it rather than emit
+    // a node the firewall must reject.
+    if (typeof field.selector !== 'string' || field.selector.length === 0) continue;
     const node: SanitizedNode = {
       // Tag is descriptive only (no values flow through it): normalize exotic
       // ARIA hosts to 'div' so one unusual control can't MALFORMED the entire
@@ -147,18 +151,21 @@ export function toSanitizedNodes(structure: ScanPageResponse['structure']): Sani
       tag: (SANITIZED_TAG_VOCABULARY.has(field.tag) ? field.tag : 'div') as SanitizedNode['tag'],
       selector: field.selector,
       filled: typeof field.value === 'string' && field.value.length > 0,
-      disabled: field.disabled,
+      // The collector reads `.disabled` off every element, but only form
+      // controls HAVE that property — ARIA divs/spans yield `undefined`,
+      // which the firewall (correctly) rejects as non-boolean. Coerce here.
+      disabled: field.disabled === true,
     };
-    if (field.inputType !== undefined && detectPII(field.inputType).length === 0) {
+    if (typeof field.inputType === 'string' && detectPII(field.inputType).length === 0) {
       node.inputType = field.inputType;
     }
-    if (field.label !== undefined && detectPII(field.label).length === 0) {
+    if (typeof field.label === 'string' && detectPII(field.label).length === 0) {
       node.label = field.label;
     }
     if (field.belowFold === true) {
       node.belowFold = true;
     }
-    if (field.name !== undefined && detectPII(field.name).length === 0) {
+    if (typeof field.name === 'string' && detectPII(field.name).length === 0) {
       node.name = field.name;
     }
     out.push(node);
