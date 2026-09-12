@@ -63,6 +63,10 @@ const MAP: Record<string, { category: ErrorCategory; recoverable: boolean; messa
   'max_steps': { category: 'max_steps', recoverable: false, message: 'Task reached step limit (10/10)', hint: 'Step budget reached' },
   // vault
   'ALIAS_UNKNOWN': { category: 'vault_empty', recoverable: false, message: 'No aliases in vault', hint: 'Vault empty — no PII to fill' },
+  // policy block: the loop reason is exactly PAGE_BLOCKED, so the generic
+  // fallback ("No hint") must never surface for it. Signal/page detail lives
+  // in the Debug trace (Policy BLOCK line); the hint points there.
+  'PAGE_BLOCKED': { category: 'unknown', recoverable: false, message: 'Agent stopped — page blocked further action (fail-closed)', hint: 'A sensitive page stopped this task. Open the Debug trace for the triggering signal and page type.' },
   // special
   'NAVIGATE_NEEDS_APPROVAL': { category: 'permission', recoverable: false, message: 'Navigation needs approval', hint: 'Allow navigation to continue' },
 };

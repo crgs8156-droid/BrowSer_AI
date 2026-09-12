@@ -36,6 +36,7 @@ import type {
   PolicySignals,
   RiskSeverity,
 } from '../types/contracts';
+import { isNavigationOnlyTask } from '../agent/services';
 
 // ---------------------------------------------------------------------------
 // Tunable thresholds. Exported so tests reference them instead of magic values.
@@ -633,13 +634,25 @@ function computePolicyReport(signals: PolicySignals): PolicyReport {
  * is floored at SANITIZE (a BLOCK is never downgraded — fail closed, Rule 7) and the
  * `visual_high_risk` signal is surfaced. The classification itself travels on the
  * report as `visualContext`.
+ *
+ * Navigation-only tasks ("open youtube") never submit page data, so a BLOCK
+ * verdict for them is a false positive: values stay aliased in transit either
+ * way. When `taskObjective` is given AND navigation-only, a BLOCK overall is
+ * downgraded to SANITIZE (marked with the `navigation_task` signal) instead of
+ * stopping the run. Every other input behaves exactly as before — in particular
+ * credential/payment tasks keep the BLOCK. The task comes from the user, never
+ * from page content, so webpage prompt injection cannot trigger the downgrade.
  */
-export function decidePolicyReport(signals: PolicySignals): PolicyReport {
+export function decidePolicyReport(signals: PolicySignals, taskObjective?: string): PolicyReport {
   const report = computePolicyReport(signals);
   // The classification travels on the report for EVERY page type (informational).
   if (signals?.visualContext !== undefined) report.visualContext = signals.visualContext;
   const pageType = signals?.visualContext?.pageType;
-  if (pageType !== 'payment' && pageType !== 'auth') return report;
+  const navOnly = typeof taskObjective === 'string' && isNavigationOnlyTask(taskObjective);
+  if (pageType !== 'payment' && pageType !== 'auth') {
+    if (navOnly && report.overall.action === 'BLOCK') return downgradeNavBlock(report);
+    return report;
+  }
 
   const overall = report.overall;
   report.overall = {
@@ -652,6 +665,25 @@ export function decidePolicyReport(signals: PolicySignals): PolicyReport {
     explanation: `${overall.explanation}; high-risk page type (${pageType}) — sanitized regardless of other signals`,
   };
   report.visualContext = signals.visualContext;
+  if (navOnly && report.overall.action === 'BLOCK') return downgradeNavBlock(report);
+  return report;
+}
+
+/**
+ * Downgrade a BLOCK overall to SANITIZE for navigation-only tasks. Aliasing is
+ * unchanged (values stay protected in transit); only the stop is lifted, since
+ * the task never submits page data. Marked honestly in signals + explanation.
+ */
+function downgradeNavBlock(report: PolicyReport): PolicyReport {
+  const overall = report.overall;
+  report.overall = {
+    ...overall,
+    action: 'SANITIZE',
+    signals: overall.signals.includes('navigation_task')
+      ? overall.signals
+      : [...overall.signals, 'navigation_task'],
+    explanation: `${overall.explanation}; navigation-only task — block lifted, aliases still enforced`,
+  };
   return report;
 }
 
@@ -659,6 +691,6 @@ export function decidePolicyReport(signals: PolicySignals): PolicyReport {
  * Page-level decision only — the `overall` rollup from `decidePolicyReport`.
  * Retained as the primary entry point for callers that need a single verdict.
  */
-export function decidePolicy(signals: PolicySignals): PolicyDecision {
-  return decidePolicyReport(signals).overall;
+export function decidePolicy(signals: PolicySignals, taskObjective?: string): PolicyDecision {
+  return decidePolicyReport(signals, taskObjective).overall;
 }

@@ -254,6 +254,7 @@ export type PolicySignalCategory =
   | 'visual_text_like'
   | 'visual_uncertain'
   | 'visual_high_risk'
+  | 'navigation_task'
   | 'restricted_page';
 
 // ---------------------------------------------------------------------------
