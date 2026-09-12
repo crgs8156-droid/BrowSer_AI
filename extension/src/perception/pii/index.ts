@@ -258,8 +258,9 @@ export function detectLabeledValues(text: string): SensitiveEntity[] {
   // Credential-like values whose keyword is followed by a colon OR whitespace — the
   // pattern-based CREDENTIAL_REGEX above requires [:=], missing shapes like
   // "api_key BENCH_KEY_001" or "Access code: BENCH_SECRET_001".
+  // Require [:=] for generic words "code" or "key" so phrases like "code repository" or "key features" are not flagged as passwords
   const CREDENTIAL_LABELED =
-    /\b(?:api[_-]?key|access[_-]?token|token|secret|password|passwd|key|code|otp)\s*[:=\s]\s*["']?([A-Za-z0-9\-_.~+/]{6,})["']?/gi;
+    /\b(?:(?:api[_-]?key|access[_-]?token|token|secret|password|passwd|otp)\s*[:=\s]|(?:key|code)\s*[:=])\s*["']?([A-Za-z0-9\-_.~+/]{6,})["']?/gi;
   for (const match of normalized.matchAll(CREDENTIAL_LABELED)) {
     const value = originalGroup(match, match[1]);
     if (!value || value.length < 6) continue;
