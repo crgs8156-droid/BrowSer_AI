@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createPrivacyFirewall } from '../../extension/src/firewall';
+import { toSanitizedNodes } from '../../extension/src/agent/loop';
 import type { RemoteAgentRequest, SanitizedNode } from '../../extension/src/types/contracts';
 
 function node(partial: Partial<SanitizedNode> & { selector: string }): SanitizedNode {
@@ -128,5 +129,20 @@ describe('privacy firewall', () => {
       sanitizedPageStructure: [node({ selector: '#x', tag: 'script' as never })],
     });
     expect((await firewall.inspect(bad)).reason).toBe('FIREWALL_MALFORMED');
+  });
+
+  it('accepts sanitizer-normalized exotic nodes end to end', async () => {
+    // Raw ARIA hosts (li/img/ul) normalize to div in toSanitizedNodes, so a
+    // Google-class page with exotic controls passes the firewall.
+    const nodes = toSanitizedNodes([
+      { tag: 'li', selector: '#r1', label: 'More', disabled: false },
+      { tag: 'img', selector: '#r2', label: 'Photo', disabled: false },
+      { tag: 'ul', selector: '#r3', label: 'List', disabled: false },
+    ] as unknown as Parameters<typeof toSanitizedNodes>[0]);
+    expect(nodes.every((n) => n.tag === 'div')).toBe(true);
+    const verdict = await createPrivacyFirewall().inspect(
+      cleanRequest({ sanitizedPageStructure: nodes }),
+    );
+    expect(verdict).toEqual({ allowed: true, reason: 'OK' });
   });
 });

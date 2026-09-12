@@ -76,6 +76,10 @@ class LLMPIILeakError(Exception):
     """The model returned detectable raw PII — fail closed upstream."""
 
 
+class LLMParseError(Exception):
+    """The model returned unparseable output (not valid JSON, no salvageable block)."""
+
+
 def to_plan_action(action: PlannedAction) -> PlanAction:
     kind = action.type
     if kind == "CLICK":

@@ -409,4 +409,15 @@ describe('toSanitizedNodes', () => {
     expect(gated?.filled).toBe(true);
     expect(button).toMatchObject({ tag: 'button', label: 'Submit', filled: false });
   });
+
+  it('normalizes exotic ARIA host tags to div and skips null entries', () => {
+    const nodes = toSanitizedNodes([
+      { tag: 'li', selector: '#r1', label: 'More', disabled: false },
+      { tag: 'img', selector: '#r2', label: 'Photo', disabled: false },
+      { tag: 'input', selector: '#a', label: 'Email', disabled: false },
+      null,
+    ] as unknown as Parameters<typeof toSanitizedNodes>[0]);
+    expect(nodes.map((n) => n.tag)).toEqual(['div', 'div', 'input']);
+    expect(nodes.every((n) => n.selector.length > 0)).toBe(true);
+  });
 });

@@ -114,6 +114,22 @@ export const AUTONOMOUS_MAX_STEPS = 10;
 const DEFAULT_MAX_STEPS = AUTONOMOUS_MAX_STEPS;
 
 /**
+ * Tags the firewall accepts. The content script casts raw `tagName`s into
+ * `FieldStructure`, so exotic hosts (`li`, `img`, … carrying ARIA roles) can
+ * arrive here — anything outside this vocabulary normalizes to 'div'
+ * (generic container) below instead of MALFORMED-ing the whole payload.
+ */
+const SANITIZED_TAG_VOCABULARY: ReadonlySet<string> = new Set([
+  'input',
+  'textarea',
+  'select',
+  'button',
+  'div',
+  'span',
+  'a',
+]);
+
+/**
  * Build the remote-safe `SanitizedNode` list from the raw internal structure. A label or
  * name crosses ONLY when the M2 detector finds nothing in it (fail closed); values never
  * cross at all — a field is just `filled` or not.
@@ -121,8 +137,14 @@ const DEFAULT_MAX_STEPS = AUTONOMOUS_MAX_STEPS;
 export function toSanitizedNodes(structure: ScanPageResponse['structure']): SanitizedNode[] {
   const out: SanitizedNode[] = [];
   for (const field of structure ?? []) {
+    // Null entries carry no data — skip instead of throwing (which would crash
+    // the loop into LOOP_CRASHED). Real elements are always objects.
+    if (typeof field !== 'object' || field === null) continue;
     const node: SanitizedNode = {
-      tag: field.tag,
+      // Tag is descriptive only (no values flow through it): normalize exotic
+      // ARIA hosts to 'div' so one unusual control can't MALFORMED the entire
+      // request. The firewall's exact-shape check remains the backstop.
+      tag: (SANITIZED_TAG_VOCABULARY.has(field.tag) ? field.tag : 'div') as SanitizedNode['tag'],
       selector: field.selector,
       filled: typeof field.value === 'string' && field.value.length > 0,
       disabled: field.disabled,

@@ -19,7 +19,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from .agent import PlanRequest, plan_actions
-from .llm_common import LLMPIILeakError, LLMUnavailableError
+from .llm_common import LLMPIILeakError, LLMParseError, LLMUnavailableError
 from .pii_scan import scan_pii
 
 logger = logging.getLogger("privagent-backend")
@@ -116,6 +116,8 @@ def _plan_impl(payload: PlanRequest) -> dict:
         raise HTTPException(status_code=502, detail="llm_unavailable") from error
     except LLMPIILeakError as error:
         raise HTTPException(status_code=502, detail="PII leak detected in LLM response") from error
+    except LLMParseError as error:
+        raise HTTPException(status_code=502, detail="llm_parse") from error
     except ValueError as error:
         # Misconfigured provider (e.g. rejected OLLAMA_URL): SSRF stays blocked,
         # surfaced as a 502 — never a 500, never with the offending URL echoed.

@@ -4,7 +4,9 @@ Runs an open-weights model ON-DEVICE via Ollama (Qwen2.5-VL 3B by default — se
 to your exact tag; the Qwen2.5-VL family is vision-capable, which is the future vision
 path). The request is ALREADY sanitized by the extension; this provider enforces the
 SAME fail-closed guarantees as the Gemini provider via the shared `llm_common`:
-  - JSON-mode output parsed into `PlanResult` (a malformed answer fails closed);
+  - JSON-mode output parsed into `PlanResult`; prose-wrapped JSON is salvaged
+    via first-{...}-block extraction, anything else fails closed as
+    `LLMParseError` (HTTP 502 `llm_parse`);
   - POST-SCAN on the model's output (`value`, `reason`) -> HTTP 502 on a leak;
   - Ollama down / 5xx / timeout / malformed JSON -> `LLMUnavailableError` -> HTTP 502
     `llm_unavailable`.
@@ -17,12 +19,14 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
+import re
 from urllib.parse import urlparse
 
 import httpx
 
 from .agent import PlanRequest, PlanResponse
 from .llm_common import (
+    LLMParseError,
     LLMUnavailableError,
     PlanResult,
     SYSTEM_INSTRUCTION,
@@ -35,6 +39,27 @@ DEFAULT_OLLAMA_URL = "http://localhost:11434"
 # valid structured JSON for the action planning contract.
 DEFAULT_MODEL = "qwen2.5vl:3b"
 TIMEOUT_SECONDS = 90.0
+
+#: Appended to the shared system instruction for Ollama calls only (the Gemini
+#: provider keeps the shared text untouched). Small models need an explicit
+#: JSON-only directive, including a JSON-shaped failure mode, or they answer
+#: in prose that can never validate.
+OLLAMA_JSON_SUFFIX = (
+    "CRITICAL: Your response must be valid JSON only.\n"
+    "No explanation. No markdown. No prose. No backticks.\n"
+    "Start your response with { and end with }.\n"
+    'If you cannot complete the task, return:\n'
+    '{"type":"complete","done":true,"summary":"cannot complete"}'
+)
+
+#: First `{` through last `}` — salvages valid JSON wrapped in model prose.
+_JSON_BLOCK_RE = re.compile(r"\{[\s\S]*\}")
+
+
+def _extract_json_block(text: str) -> str | None:
+    """Return the first {...} block in model output, or None when absent."""
+    match = _JSON_BLOCK_RE.search(text)
+    return match.group(0) if match else None
 
 #: Hostnames that always count as loopback without consulting DNS.
 _LOOPBACK_NAMES = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -103,9 +128,15 @@ class OllamaProvider:
                 json={
                     "model": self.model,
                     "messages": [
-                        {"role": "system", "content": SYSTEM_INSTRUCTION},
+                        {"role": "system", "content": f"{SYSTEM_INSTRUCTION}\n{OLLAMA_JSON_SUFFIX}"},
                         {"role": "user", "content": json.dumps(payload)},
                     ],
+                    # NOTE: no bare "format" key here. This endpoint speaks the
+                    # OpenAI-compatible chat API, whose JSON enforcement IS
+                    # response_format=json_object (already sent). A "format" key
+                    # belongs to Ollama's native /api/* endpoints, which this
+                    # provider does not use — sending it would be a no-op at
+                    # best, so it is deliberately omitted.
                     "response_format": {"type": "json_object"},
                 },
                 timeout=TIMEOUT_SECONDS,
@@ -116,9 +147,25 @@ class OllamaProvider:
 
         try:
             content = response.json()["choices"][0]["message"]["content"]
-            parsed = PlanResult.model_validate_json(content)
         except (KeyError, IndexError, TypeError, ValueError):
             raise LLMUnavailableError() from None
+        if not isinstance(content, str):
+            raise LLMUnavailableError() from None
+
+        try:
+            parsed = PlanResult.model_validate_json(content)
+        except ValueError:
+            # Small models wrap JSON in prose ("Here is... {...}"). Salvage the
+            # first {...} block; anything still unparseable is a parse failure
+            # (502 llm_parse) — never a firewall shape error, which is a
+            # request-contract problem, not a model-output problem.
+            block = _extract_json_block(content)
+            if block is None:
+                raise LLMParseError() from None
+            try:
+                parsed = PlanResult.model_validate_json(block)
+            except ValueError:
+                raise LLMParseError() from None
 
         # POST-SCAN: the local model's output must never carry raw PII either.
         post_scan(parsed)

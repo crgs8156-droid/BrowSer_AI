@@ -131,7 +131,31 @@ def test_malformed_json_fails_closed_with_502(ollama_env):
     with patch("app.ollama_provider.httpx.post", _mock_ollama(None, content="this is not json")):
         response = client.post("/v1/plan", json=_request())
     assert response.status_code == 502
-    assert response.json()["detail"] == "llm_unavailable"
+    assert response.json()["detail"] == "llm_parse"
+
+
+def test_prose_wrapped_json_is_salvaged(ollama_env):
+    content = (
+        'Here is my plan:\n'
+        '{"action": {"type": "CLICK", "selector": "#submit"}, "done": false, "reason": "go"}\n'
+        'Hope this helps!'
+    )
+    with patch("app.ollama_provider.httpx.post", _mock_ollama(None, content=content)):
+        response = client.post("/v1/plan", json=_request())
+    assert response.status_code == 200
+    assert response.json()["actions"] == [{"action": "CLICK", "target": "#submit"}]
+
+
+def test_system_prompt_demands_json_only(ollama_env):
+    result = PlanResult(action=PlannedAction(type="CLICK", selector="#submit"), done=False, reason="go")
+    with patch("app.ollama_provider.httpx.post", _mock_ollama(result)) as post_mock:
+        response = client.post("/v1/plan", json=_request())
+    assert response.status_code == 200
+    body = post_mock.call_args.kwargs["json"]
+    system = body["messages"][0]["content"]
+    assert "valid JSON only" in system
+    assert system.startswith("You are a privacy-preserving browser agent.")
+    assert body["response_format"] == {"type": "json_object"}
 
 
 def test_request_provider_routes_to_ollama_over_env(monkeypatch):
