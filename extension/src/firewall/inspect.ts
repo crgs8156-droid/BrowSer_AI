@@ -24,6 +24,7 @@
 import type { RemoteAgentRequest } from '../types/contracts';
 import { ALLOWED_ACTION_KINDS } from '../actions/kinds';
 import { detectPII } from '../perception/pii';
+import { emitTrace } from '../debug/trace';
 
 export interface FirewallVerdict {
   allowed: boolean;
@@ -59,20 +60,50 @@ function allow(): FirewallVerdict {
   return { allowed: true, reason: 'OK' };
 }
 
+/**
+ * MALFORMED diagnostics for the Debug trace panel (NOT the console — Rule 4
+ * forbids console logging in egress modules, enforced by agent-leakage.test).
+ * Records WHICH structural check failed using metadata only (check name, JS
+ * types, lengths, indices) — never field contents, which can carry page text.
+ * Silent no-op unless debug mode is enabled (zero overhead otherwise), and a
+ * throwing tracer must never change the verdict.
+ */
+function fwDebug(check: string, detail?: string): void {
+  try {
+    emitTrace({ stage: `[Firewall] MALFORMED at: ${check}`, detail, isError: true });
+  } catch {
+    // ignore — diagnostics never break the verdict
+  }
+}
+
 /** Structural check on one sanitized node — mirrors the `SanitizedNode` contract. */
-function isValidNode(node: unknown): boolean {
-  if (typeof node !== 'object' || node === null) return false;
+function isValidNode(node: unknown, index?: number): boolean {
+  const where = index !== undefined ? `node[${index}]` : 'node';
+  if (typeof node !== 'object' || node === null) {
+    fwDebug('node-shape', `${where} not object type:${typeof node}`);
+    return false;
+  }
   const n = node as Record<string, unknown>;
-  if (!['input', 'textarea', 'select', 'button', 'div', 'span', 'a'].includes(n['tag'] as string)) return false;
-  if (typeof n['selector'] !== 'string' || n['selector'].length === 0) return false;
+  if (!['input', 'textarea', 'select', 'button', 'div', 'span', 'a'].includes(n['tag'] as string)) {
+    fwDebug('node-tag', `${where} unexpected tag type:${typeof n['tag']}`);
+    return false;
+  }
+  if (typeof n['selector'] !== 'string' || n['selector'].length === 0) {
+    fwDebug('node-selector', `${where} selector type:${typeof n['selector']}`);
+    return false;
+  }
   if (typeof n['filled'] !== 'boolean' || typeof n['disabled'] !== 'boolean') return false;
   for (const optional of ['inputType', 'label', 'name']) {
     const value = n[optional];
-    if (value !== undefined && typeof value !== 'string') return false;
+    if (value !== undefined && typeof value !== 'string') {
+      fwDebug('node-optional', `${where} field:${optional} type:${typeof value}`);
+      return false;
+    }
   }
   if (n['belowFold'] !== undefined && typeof n['belowFold'] !== 'boolean') return false;
   for (const key of Object.keys(n)) {
     if (!['tag', 'selector', 'inputType', 'label', 'name', 'filled', 'disabled', 'belowFold'].includes(key)) {
+      fwDebug('node-extra-key', `${where} key:${key}`);
       return false;
     }
   }
@@ -97,29 +128,53 @@ export function createPrivacyFirewall(): PrivacyFirewall {
   return {
     inspect(request: RemoteAgentRequest): Promise<FirewallVerdict> {
       if (typeof request !== 'object' || request === null) {
+        fwDebug('request-shape', `request type:${typeof request}`);
         return Promise.resolve(deny('FIREWALL_MALFORMED'));
       }
 
       // 1 — exact shape: every expected key present, nothing extra (fail closed).
       for (const key of Object.keys(request)) {
-        if (!REQUEST_KEYS.has(key)) return Promise.resolve(deny('FIREWALL_UNEXPECTED_FIELD'));
+        if (!REQUEST_KEYS.has(key)) {
+          fwDebug('request-keys', `unexpected key:${key}`);
+          return Promise.resolve(deny('FIREWALL_UNEXPECTED_FIELD'));
+        }
       }
 
       const r = request as unknown as Record<string, unknown>;
       // `pageOrigin` is OPTIONAL (origin-only when present); every other key is required.
       const required = [...REQUEST_KEYS].filter((key) => key !== 'pageOrigin' && key !== 'provider');
       const missing = required.filter((key) => !(key in r));
-      if (missing.length > 0) return Promise.resolve(deny('FIREWALL_MALFORMED'));
+      if (missing.length > 0) {
+        fwDebug('request-keys', `missing:${missing.join(',')}`);
+        return Promise.resolve(deny('FIREWALL_MALFORMED'));
+      }
 
       if (typeof r['taskObjective'] !== 'string' || (r['taskObjective'] as string).length > MAX_TASK_LENGTH) {
+        fwDebug(
+          'taskObjective',
+          `type:${typeof r['taskObjective']} length:${typeof r['taskObjective'] === 'string' ? (r['taskObjective'] as string).length : -1}`,
+        );
         return Promise.resolve(deny('FIREWALL_MALFORMED'));
       }
       if (typeof r['sanitizedVisibleText'] !== 'string' || (r['sanitizedVisibleText'] as string).length > MAX_TEXT_LENGTH) {
+        fwDebug(
+          'sanitizedVisibleText',
+          `type:${typeof r['sanitizedVisibleText']} length:${typeof r['sanitizedVisibleText'] === 'string' ? (r['sanitizedVisibleText'] as string).length : -1} max:${MAX_TEXT_LENGTH}`,
+        );
         return Promise.resolve(deny('FIREWALL_MALFORMED'));
       }
 
       const nodes = r['sanitizedPageStructure'];
-      if (!Array.isArray(nodes) || nodes.length > MAX_NODES || !nodes.every(isValidNode)) {
+      if (!Array.isArray(nodes) || nodes.length > MAX_NODES) {
+        fwDebug(
+          'sanitizedPageStructure',
+          `isArray:${Array.isArray(nodes)} length:${Array.isArray(nodes) ? (nodes as unknown[]).length : -1} max:${MAX_NODES}`,
+        );
+        return Promise.resolve(deny('FIREWALL_MALFORMED'));
+      }
+      const badNode = nodes.findIndex((candidate, index) => !isValidNode(candidate, index));
+      if (badNode !== -1) {
+        fwDebug('sanitizedPageStructure', `first bad index:${badNode} of:${nodes.length}`);
         return Promise.resolve(deny('FIREWALL_MALFORMED'));
       }
 
@@ -136,6 +191,10 @@ export function createPrivacyFirewall(): PrivacyFirewall {
             typeof (a as Record<string, unknown>)['category'] === 'string',
         )
       ) {
+        fwDebug(
+          'aliases',
+          `isArray:${Array.isArray(aliases)} length:${Array.isArray(aliases) ? (aliases as unknown[]).length : -1}`,
+        );
         return Promise.resolve(deny('FIREWALL_BAD_ALIAS'));
       }
 
@@ -144,6 +203,7 @@ export function createPrivacyFirewall(): PrivacyFirewall {
         !Array.isArray(availableActions) ||
         !availableActions.every((kind) => (ALLOWED_ACTION_KINDS as readonly string[]).includes(kind as string))
       ) {
+        fwDebug('availableActions', `isArray:${Array.isArray(availableActions)}`);
         return Promise.resolve(deny('FIREWALL_BAD_ACTIONS'));
       }
 
@@ -154,19 +214,25 @@ export function createPrivacyFirewall(): PrivacyFirewall {
           typeof provider !== 'string' ||
           !['gemini', 'ollama', 'deterministic'].includes(provider)
         ) {
+          fwDebug('provider', `type:${typeof provider}`);
           return Promise.resolve(deny('FIREWALL_MALFORMED'));
         }
       }
 
       // pageOrigin: origin-only string (never a full URL) — validated as such.
       if (r['pageOrigin'] !== undefined) {
-        if (typeof r['pageOrigin'] !== 'string') return Promise.resolve(deny('FIREWALL_MALFORMED'));
+        if (typeof r['pageOrigin'] !== 'string') {
+          fwDebug('pageOrigin', `type:${typeof r['pageOrigin']}`);
+          return Promise.resolve(deny('FIREWALL_MALFORMED'));
+        }
         try {
           const parsed = new URL(r['pageOrigin'] as string);
           if (parsed.pathname !== '/' || parsed.search !== '' || parsed.hash !== '') {
+            fwDebug('pageOrigin', 'not origin-only');
             return Promise.resolve(deny('FIREWALL_MALFORMED'));
           }
         } catch {
+          fwDebug('pageOrigin', 'unparseable');
           return Promise.resolve(deny('FIREWALL_MALFORMED'));
         }
       }
@@ -178,6 +244,7 @@ export function createPrivacyFirewall(): PrivacyFirewall {
         typeof (policy as Record<string, unknown>)['privacyMode'] !== 'string' ||
         !Array.isArray((policy as Record<string, unknown>)['navigationAllowlist'])
       ) {
+        fwDebug('policy', `type:${typeof policy}`);
         return Promise.resolve(deny('FIREWALL_MALFORMED'));
       }
 
