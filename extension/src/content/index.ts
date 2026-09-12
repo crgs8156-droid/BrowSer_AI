@@ -188,6 +188,25 @@ function executeActionInPage(action: AgentAction): ExecuteActionResponse {
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true, code: 'OK' };
     }
+    // ARIA rich-text editors (Gmail compose, docs editors) are contenteditable
+    // divs, not inputs: the collector reports them and the planner may target
+    // them, so typing must work here too. Append (never replace) to preserve
+    // any existing draft, then fire input so frameworks observe the change.
+    if (el instanceof HTMLElement && el.isContentEditable) {
+      el.scrollIntoView({ block: 'center', behavior: 'auto' });
+      el.focus();
+      let inserted = false;
+      try {
+        inserted = document.execCommand('insertText', false, action.value);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted) {
+        el.textContent = `${el.textContent ?? ''}${action.value}`;
+      }
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      return { ok: true, code: 'OK' };
+    }
     return { ok: false, code: 'UNSUPPORTED' };
   }
 
