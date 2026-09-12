@@ -26,6 +26,7 @@ import type {
   SensitiveEntity,
 } from '../types/contracts';
 import { decidePolicyReport } from '../policy';
+import { isNavigationOnlyTask } from '../agent/services';
 import type { LocalVault } from '../vault';
 import { createAliasAllocator, redact, toSensitiveCategory } from './alias';
 import { logAuditEvent } from '../audit/log';
@@ -80,10 +81,14 @@ export async function enforcePrivacy(input: EnforceInput): Promise<EnforcementRe
   const maskInputs: MaskInput[] = [];
   const findings: FindingEnforcement[] = [];
   const vaultWrites: Promise<void>[] = [];
+  const navOnly = typeof input.taskObjective === 'string' && isNavigationOnlyTask(input.taskObjective);
   let blocked = report.overall.action === 'BLOCK';
 
   for (const f of report.findings) {
-    if (f.action === 'BLOCK') blocked = true;
+    // Navigation-only tasks never submit page data: per-finding BLOCK verdicts
+    // must not re-block the run (the overall verdict was already downgraded).
+    // Every other task type keeps the fail-closed escalation.
+    if (!navOnly && f.action === 'BLOCK') blocked = true;
 
     const findingId = f.ref.findingId;
     const bbox = f.ref.bbox;
