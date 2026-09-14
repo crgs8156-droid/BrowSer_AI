@@ -9,7 +9,7 @@ they cannot match any pattern here.
 
 import re
 
-EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63})*\.[A-Za-z]{2,}\b")
 PHONE_RE = re.compile(r"(?:(?:\+91|0091|91|0)[\s\-.]?)?(?:[6-9]\d{4}[\s\-.]?\d{5}|[6-9]\d{2}[\s\-.]?\d{3,4}[\s\-.]?\d{3,4})")
 PHONE_US_RE = re.compile(r"\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b")
 CARD_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
